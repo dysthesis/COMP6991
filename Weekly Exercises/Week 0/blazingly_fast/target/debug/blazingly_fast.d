@@ -1,0 +1,1 @@
+/home/apollyon/Documents/University/COMP6991/Weekly\ Exercises/Week\ 0/blazingly_fast/target/debug/blazingly_fast: /home/apollyon/Documents/University/COMP6991/Weekly\ Exercises/Week\ 0/blazingly_fast/src/main.rs

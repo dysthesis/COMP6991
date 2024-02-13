@@ -1,0 +1,22 @@
+#+title: Mini Grep
+#+PROPERTY: header-args :noweb yes
+#+auto_tangle:y
+
+#+begin_quote
+ You have been given a crate, mini_grep, which prints the first command-line argument.
+
+Your task is to modify mini_grep/src/main.rs, such that it reads lines on standard input, printing each line back out if and only if the input line contains the command-line argument.
+#+end_quote
+
+#+begin_src rust
+fn main() {
+    let pattern_string = std::env::args()
+        .nth(1)
+        .expect("missing required command-line argument: <pattern>");
+
+    let pattern = &pattern_string;
+
+    // TODO: Replace the following with your code:
+    println!("The command-line argument is: {pattern}");
+}
+#+end_src
