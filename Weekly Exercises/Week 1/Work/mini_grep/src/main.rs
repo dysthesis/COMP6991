@@ -14,8 +14,8 @@ fn main() {
                     break;
                 }
                 if input.contains(pattern) {
-                    // let stripped: String = input.clone().replace(char::is_whitespace, "");
-                    println!("{input}");
+                    // Get rid of newline
+                    println!("{}", input.replace("\n", ""));
                 }
                 input.clear();
             }
