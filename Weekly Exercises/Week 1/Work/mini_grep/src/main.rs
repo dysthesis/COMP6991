@@ -4,7 +4,6 @@ fn main() {
     let pattern_string: String = std::env::args()
         .nth(1)
         .expect("missing required command-line argument: <pattern>");
-
     let pattern: &String = &pattern_string;
     let mut input: String = String::new();
     loop {
@@ -14,7 +13,6 @@ fn main() {
                     break;
                 }
                 if input.contains(pattern) {
-                    // Get rid of newline
                     println!("{}", input.replace("\n", ""));
                 }
                 input.clear();
