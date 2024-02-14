@@ -13,7 +13,7 @@ fn main() {
                     break;
                 }
                 if input.contains(pattern) {
-                    println!("{}", input.replace("\n", ""));
+                    println!("{}", input.replace('\n', ""));
                 }
                 input.clear();
             }
