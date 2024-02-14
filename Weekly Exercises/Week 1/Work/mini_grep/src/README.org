@@ -82,7 +82,7 @@ Otherwise, check if the pattern string is contained inside the input string. If 
 #+name: check-pattern
 #+begin_src rust
 if input.contains(pattern) {
-    println!("{}", input.replace("\n", ""));
+    println!("{}", input.replace('\n', ""));
 }
 #+end_src
 
