@@ -1,3 +1,5 @@
+mod parsers;
+
 use clap::Parser;
 use unsvg::Image;
 
