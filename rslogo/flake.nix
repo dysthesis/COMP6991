@@ -27,9 +27,7 @@
         pkgs,
         system,
         ...
-      }: let
-        cargoToml = builtins.fromTOML (builtins.readFile ./Cargo.toml);
-      in {
+      }: {
         _module.args.pkgs = import inputs.nixpkgs {
           inherit system;
           overlays = [
@@ -38,8 +36,8 @@
         };
 
         packages.default = pkgs.rustPlatform.buildRustPackage {
-          # Use the package name and version defined in ./Cargo.toml
-          inherit (cargoToml) name version;
+          name = "rslogo";
+          version = "0.1.0";
           src = ./.;
           cargoLock.lockFile = ./Cargo.lock;
         };
