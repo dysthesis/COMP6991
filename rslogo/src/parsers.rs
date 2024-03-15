@@ -1,4 +1,7 @@
-use nom::{bytes::complete::tag, character::complete::multispace0, sequence::preceded, IResult};
+use nom::{
+    branch::alt, bytes::complete::tag, character::complete::multispace0, sequence::preceded,
+    IResult,
+};
 
 /// This enum contains the list of valid Logo commands
 #[derive(Debug, PartialEq)]
@@ -25,6 +28,13 @@ fn pen_down(input: &str) -> IResult<&str, Command> {
         .map(|(next_input, _)| (next_input, Command::PenDown))
 }
 
+fn command(input: &str) -> IResult<&str, Command> {
+    alt((
+        pen_up, pen_down,
+        // Add other parsers here
+    ))(input)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -43,13 +53,13 @@ mod tests {
 
     #[test]
     fn invalid_penup() {
-        let input: &str = "PENUPS";
+        let input: &str = "DEFINITELYNOT";
         assert!(pen_up(input).is_err());
     }
 
     #[test]
     fn invalid_pendown() {
-        let input: &str = "PENDOWNS";
+        let input: &str = "DEFINITELYNOT";
         assert!(pen_down(input).is_err());
     }
 
