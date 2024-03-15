@@ -1,8 +1,8 @@
-use nom::{bytes::complete::tag, combinator::map, IResult};
+use nom::{bytes::complete::tag, character::complete::multispace0, sequence::preceded, IResult};
 
 /// This enum contains the list of valid Logo commands
 #[derive(Debug, PartialEq)]
-enum TurtleCommand {
+enum Command {
     PenUp,
     PenDown,
     Forward(f32),
@@ -16,12 +16,13 @@ enum TurtleCommand {
     SetY(f32),
 }
 
-fn pen_up(input: &str) -> IResult<&str, TurtleCommand> {
-    map(tag("PENUP"), |_| TurtleCommand::PenUp)(input)
+fn pen_up(input: &str) -> IResult<&str, Command> {
+    preceded(multispace0, tag("PENUP"))(input).map(|(next_input, _)| (next_input, Command::PenUp))
 }
 
-fn pen_down(input: &str) -> IResult<&str, TurtleCommand> {
-    map(tag("PENDOWN"), |_| TurtleCommand::PenDown)(input)
+fn pen_down(input: &str) -> IResult<&str, Command> {
+    preceded(multispace0, tag("PENDOWN"))(input)
+        .map(|(next_input, _)| (next_input, Command::PenDown))
 }
 
 #[cfg(test)]
@@ -29,9 +30,38 @@ mod tests {
     use super::*;
 
     #[test]
-    #[test]
     fn valid_penup() {
         let input: &str = "PENUP";
-        assert_eq!(pen_up(input), Ok(("", TurtleCommand::PenUp)));
+        assert_eq!(pen_up(input), Ok(("", Command::PenUp)));
+    }
+
+    #[test]
+    fn valid_pendown() {
+        let input: &str = "PENDOWN";
+        assert_eq!(pen_down(input), Ok(("", Command::PenDown)));
+    }
+
+    #[test]
+    fn invalid_penup() {
+        let input: &str = "PENUPS";
+        assert!(pen_up(input).is_err());
+    }
+
+    #[test]
+    fn invalid_pendown() {
+        let input: &str = "PENDOWNS";
+        assert!(pen_down(input).is_err());
+    }
+
+    #[test]
+    fn trailing_penup() {
+        let input: &str = "PENUP extra";
+        assert_eq!(pen_up(input), Ok((" extra", Command::PenUp)));
+    }
+
+    #[test]
+    fn trailing_pendown() {
+        let input: &str = "PENDOWN extra";
+        assert_eq!(pen_down(input), Ok((" extra", Command::PenDown)));
     }
 }
