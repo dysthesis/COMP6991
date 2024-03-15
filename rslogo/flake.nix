@@ -59,6 +59,7 @@
             cargo
             rustc
             cargo-watch
+            cargo-tarpaulin
             rust-analyzer
           ];
 
