@@ -80,4 +80,49 @@ mod tests {
         let pendown = "PENDOWN";
         assert_eq!(parse_pen_state(pendown), Ok(("", Token::PenDown)));
     }
+
+    #[test]
+    fn valid_states_with_whitespace() {
+        let this_is_correct = " PENUP ";
+        assert_eq!(parse_pen_state(this_is_correct), Ok(("", Token::PenUp)));
+    }
+
+    #[test]
+    fn invalid_states() {
+        let invalid = "PENSIDEWAYS";
+        assert!(parse_pen_state(invalid).is_err());
+    }
+
+    #[test]
+    fn valid_directions() {
+        let forward = "FORWARD 10";
+        assert_eq!(parse_directions(forward), Ok(("", Token::Forward(10))));
+
+        let back = "BACK 10";
+        assert_eq!(parse_directions(back), Ok(("", Token::Backward(10))));
+
+        let left = "LEFT 10";
+        assert_eq!(parse_directions(left), Ok(("", Token::Left(10))));
+
+        let right = "RIGHT 10";
+        assert_eq!(parse_directions(right), Ok(("", Token::Right(10))));
+    }
+
+    #[test]
+    fn invalid_directions() {
+        let invalid = "NOWHERE 10";
+        assert!(parse_directions(invalid).is_err());
+    }
+
+    #[test]
+    fn invalid_directions_no_distance() {
+        let invalid = "FORWARD";
+        assert!(parse_directions(invalid).is_err());
+    }
+
+    #[test]
+    fn invalid_directions_no_whitespace() {
+        let invalid = "BACKWARD4";
+        assert!(parse_directions(invalid).is_err());
+    }
 }
