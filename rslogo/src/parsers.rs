@@ -10,20 +10,59 @@ enum Token {
     Right(i32),
 }
 
-type Program = Vec<Token>;
-
+/// # Parse pen state commands
+///
+/// This function is responsible for parsing any commands related to
+/// modifying the pen's state, including `PENUP` and `PENDOWN`. It returns
+/// an instance of `Ok((&str, Token::PenUp))` or `Ok((&str, Token::PenDown))`
+/// upon successful parsing, or `Error<&str>` otherwise.
+///
+/// Example:
+/// ```
+/// assert_eq!(parse_pen_state("PENUP"), Ok(("", Token::PenUp)));
+/// assert_eq!(parse_pen_state("PENDOWN"), Ok(("", Token::PenDown)));
+/// ```
 fn parse_pen_state(input: &str) -> IResult<&str, Token> {
-    let (input, parsed): (&str, &str) = alt((tag("PENUP"), tag("PENDOWN"))).parse(input)?;
+    let (input, parsed): (&str, &str) = delimited(
+        multispace0,
+        alt((tag("PENUP"), tag("PENDOWN"))),
+        multispace0,
+    )(input)?;
 
     let result = match parsed {
         "PENUP" => Token::PenUp,
 
         "PENDOWN" => Token::PenDown,
 
-        _ => {
-            // TODO: Make this return an actual error
-            todo!()
-        }
+        // TODO: Verify that this is correct
+        _ => unreachable!(),
+    };
+
+    Ok((input, result))
+}
+
+fn parse_directions(input: &str) -> IResult<&str, Token> {
+    let (input, (direction, distance_str)) = separated_pair(
+        // Recognise any of these strings as a direction
+        alt((tag("FORWARD"), tag("BACK"), tag("LEFT"), tag("RIGHT"))),
+        // The direction and distance must be separated with a space
+        space1,
+        // Ensure that there is at least one digit for the distance
+        digit1,
+    )(input)?;
+
+    let distance: i32 = distance_str
+        .parse::<i32>()
+        .expect("The digit1 parser should have failed if this was not a number");
+
+    let result = match direction {
+        "FORWARD" => Token::Forward(distance),
+        "BACK" => Token::Backward(distance),
+        "LEFT" => Token::Left(distance),
+        "RIGHT" => Token::Right(distance),
+
+        // TODO: Verify that this is correct
+        _ => unreachable!(),
     };
 
     Ok((input, result))
