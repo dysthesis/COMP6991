@@ -48,7 +48,7 @@ fn parse_pen_state(input: &str) -> IResult<&str, Token> {
 }
 
 fn parse_directions(input: &str) -> IResult<&str, Token> {
-    let (input, (direction, distance_str)) = delimited(
+    let (input, (direction, distance)) = delimited(
         // There may or may not be any whitespace before the pattern
         multispace0,
         separated_pair(
@@ -57,15 +57,11 @@ fn parse_directions(input: &str) -> IResult<&str, Token> {
             // The direction and distance must be separated with a space
             space1,
             // Ensure that there is at least one digit for the distance
-            digit1,
+            nom::character::complete::i32,
         ),
         // There may or may not be whitespace after the patern
         multispace0,
     )(input)?;
-
-    let distance: i32 = distance_str
-        .parse::<i32>()
-        .expect("The digit1 parser should have failed if this was not a number");
 
     let result = match direction {
         "FORWARD" => Token::Forward(distance),
