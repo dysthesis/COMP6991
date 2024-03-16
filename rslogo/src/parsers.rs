@@ -11,7 +11,7 @@ enum Token {
     PenUp,
     PenDown,
     Forward(i32),
-    Backward(i32),
+    Back(i32),
     Left(i32),
     Right(i32),
 }
@@ -48,13 +48,19 @@ fn parse_pen_state(input: &str) -> IResult<&str, Token> {
 }
 
 fn parse_directions(input: &str) -> IResult<&str, Token> {
-    let (input, (direction, distance_str)) = separated_pair(
-        // Recognise any of these strings as a direction
-        alt((tag("FORWARD"), tag("BACK"), tag("LEFT"), tag("RIGHT"))),
-        // The direction and distance must be separated with a space
-        space1,
-        // Ensure that there is at least one digit for the distance
-        digit1,
+    let (input, (direction, distance_str)) = delimited(
+        // There may or may not be any whitespace before the pattern
+        multispace0,
+        separated_pair(
+            // Recognise any of these strings as a direction
+            alt((tag("FORWARD"), tag("BACK"), tag("LEFT"), tag("RIGHT"))),
+            // The direction and distance must be separated with a space
+            space1,
+            // Ensure that there is at least one digit for the distance
+            digit1,
+        ),
+        // There may or may not be whitespace after the patern
+        multispace0,
     )(input)?;
 
     let distance: i32 = distance_str
@@ -63,7 +69,7 @@ fn parse_directions(input: &str) -> IResult<&str, Token> {
 
     let result = match direction {
         "FORWARD" => Token::Forward(distance),
-        "BACK" => Token::Backward(distance),
+        "BACK" => Token::Back(distance),
         "LEFT" => Token::Left(distance),
         "RIGHT" => Token::Right(distance),
 
@@ -91,6 +97,12 @@ mod tests {
     fn valid_states_with_whitespace() {
         let this_is_correct = " PENUP ";
         assert_eq!(parse_pen_state(this_is_correct), Ok(("", Token::PenUp)));
+
+        let this_is_also_correct = "\nPENUP\n";
+        assert_eq!(
+            parse_pen_state(this_is_also_correct),
+            Ok(("", Token::PenUp))
+        );
     }
 
     #[test]
@@ -105,13 +117,25 @@ mod tests {
         assert_eq!(parse_directions(forward), Ok(("", Token::Forward(10))));
 
         let back = "BACK 10";
-        assert_eq!(parse_directions(back), Ok(("", Token::Backward(10))));
+        assert_eq!(parse_directions(back), Ok(("", Token::Back(10))));
 
         let left = "LEFT 10";
         assert_eq!(parse_directions(left), Ok(("", Token::Left(10))));
 
         let right = "RIGHT 10";
         assert_eq!(parse_directions(right), Ok(("", Token::Right(10))));
+    }
+
+    #[test]
+    fn valid_directions_with_whitespace() {
+        let this_is_correct = " BACK 5 ";
+        assert_eq!(parse_directions(this_is_correct), Ok(("", Token::Back(5))));
+
+        let this_is_also_correct = "\nRIGHT 20\n";
+        assert_eq!(
+            parse_directions(this_is_also_correct),
+            Ok(("", Token::Right(20)))
+        );
     }
 
     #[test]
