@@ -1,4 +1,10 @@
-use nom::{branch::alt, bytes::complete::tag, IResult, Parser};
+use nom::{
+    branch::alt,
+    bytes::complete::tag,
+    character::complete::{digit1, multispace0, space1},
+    sequence::{delimited, separated_pair},
+    IResult,
+};
 
 #[derive(PartialEq, Debug)]
 enum Token {
