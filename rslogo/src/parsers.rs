@@ -41,7 +41,7 @@ fn parse_pen_state(input: &str) -> IResult<&str, Token> {
 
         "PENDOWN" => Token::PenDown,
 
-        // TODO: Verify that this is correct
+        // TODO:  THIS SHOULD RETURN AN ERROR OBJECT!
         _ => unreachable!(),
     };
 
@@ -70,11 +70,34 @@ fn parse_directions(input: &str) -> IResult<&str, Token> {
         "LEFT" => Token::Left(distance),
         "RIGHT" => Token::Right(distance),
 
-        // TODO: Verify that this is correct
+        // TODO:  THIS SHOULD RETURN AN ERROR OBJECT!
         _ => unreachable!(),
     };
 
     Ok((input, result))
+}
+
+fn parse_one(input: &str) -> IResult<&str, Token> {
+    // Put all of the parsers inside here.
+    let (remainder, result) = alt((parse_directions, parse_pen_state))(input)?;
+
+    Ok((remainder, result))
+}
+
+fn parse(input: &str) -> Vec<Token> {
+    let output = many0(parse_one)(input);
+    match output {
+        Ok(output) => {
+            let (remainder, result) = output;
+            println!("Unparsed: {remainder}");
+            result
+        }
+
+        // TODO: Proper error reporting with miette!
+        Err(_) => {
+            panic!("Cannot parse!");
+        }
+    }
 }
 
 #[cfg(test)]
@@ -149,7 +172,36 @@ mod tests {
 
     #[test]
     fn invalid_directions_no_whitespace() {
-        let invalid = "BACKWARD4";
+        let invalid = "BACK4";
         assert!(parse_directions(invalid).is_err());
+    }
+
+    #[test]
+    fn valid_parse_one() {
+        let input = "PENUP\nFORWARD 4\nPENDOWN";
+        let (remainder, penup) = parse_one(input).unwrap();
+        assert_eq!(penup, Token::PenUp);
+
+        let (remainder, forward) = parse_one(remainder).unwrap();
+        assert_eq!(forward, Token::Forward(4));
+
+        let (remainder, pendown) = parse_one(remainder).unwrap();
+        assert_eq!(pendown, Token::PenDown);
+        assert_eq!(remainder, "");
+    }
+
+    #[test]
+    fn valid_parse() {
+        let input = "PENUP\nBACK 16\nRIGHT 10\nPENDOWN\nextra";
+        let result = parse(input);
+        assert_eq!(
+            result,
+            vec![
+                Token::PenUp,
+                Token::Back(16),
+                Token::Right(10),
+                Token::PenDown
+            ]
+        );
     }
 }
