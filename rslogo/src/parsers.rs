@@ -32,8 +32,6 @@ struct MyParseError {
     cause: SourceSpan,
 }
 
-/// # Parse pen state commands
-///
 /// This function is responsible for parsing any commands related to
 /// modifying the pen's state, including `PENUP` and `PENDOWN`. It returns
 /// an instance of `Ok((&str, Token::PenUp))` or `Ok((&str, Token::PenDown))`
