@@ -6,6 +6,7 @@ use nom::{
     sequence::{delimited, separated_pair},
     IResult,
 };
+use nom_supreme::error::ErrorTree;
 
 #[derive(PartialEq, Debug)]
 enum Token {
@@ -29,7 +30,7 @@ enum Token {
 /// assert_eq!(parse_pen_state("PENUP"), Ok(("", Token::PenUp)));
 /// assert_eq!(parse_pen_state("PENDOWN"), Ok(("", Token::PenDown)));
 /// ```
-fn parse_pen_state(input: &str) -> IResult<&str, Token> {
+fn parse_pen_state(input: &str) -> IResult<&str, Token, ErrorTree<&str>> {
     let (input, parsed): (&str, &str) = delimited(
         multispace0,
         alt((tag("PENUP"), tag("PENDOWN"))),
@@ -48,7 +49,7 @@ fn parse_pen_state(input: &str) -> IResult<&str, Token> {
     Ok((input, result))
 }
 
-fn parse_directions(input: &str) -> IResult<&str, Token> {
+fn parse_directions(input: &str) -> IResult<&str, Token, ErrorTree<&str>> {
     let (input, (direction, distance)) = delimited(
         // There may or may not be any whitespace before the pattern
         multispace0,
@@ -77,7 +78,7 @@ fn parse_directions(input: &str) -> IResult<&str, Token> {
     Ok((input, result))
 }
 
-fn parse_one(input: &str) -> IResult<&str, Token> {
+fn parse_one(input: &str) -> IResult<&str, Token, ErrorTree<&str>> {
     // Put all of the parsers inside here.
     let (remainder, result) = alt((parse_directions, parse_pen_state))(input)?;
 
@@ -85,7 +86,7 @@ fn parse_one(input: &str) -> IResult<&str, Token> {
 }
 
 fn parse(input: &str) -> Vec<Token> {
-    let output = many0(parse_one)(input);
+    let output: IResult<&str, Vec<Token>, ErrorTree<&str>> = many0(parse_one)(input);
     match output {
         Ok(output) => {
             let (remainder, result) = output;
@@ -94,8 +95,12 @@ fn parse(input: &str) -> Vec<Token> {
         }
 
         // TODO: Proper error reporting with miette!
-        Err(_) => {
-            panic!("Cannot parse!");
+        Err(nom::Err::Error(e)) => {
+            panic!("Error: {:?}", e);
+        }
+
+        _ => {
+            panic!("Errors should be from nom!");
         }
     }
 }
@@ -107,22 +112,23 @@ mod tests {
     #[test]
     fn valid_states() {
         let penup = "PENUP";
-        assert_eq!(parse_pen_state(penup), Ok(("", Token::PenUp)));
+        let (_, result) = parse_pen_state(penup).unwrap();
+        assert_eq!(result, Token::PenUp);
 
         let pendown = "PENDOWN";
-        assert_eq!(parse_pen_state(pendown), Ok(("", Token::PenDown)));
+        let (_, result) = parse_pen_state(pendown).unwrap();
+        assert_eq!(result, Token::PenDown);
     }
 
     #[test]
     fn valid_states_with_whitespace() {
         let this_is_correct = " PENUP ";
-        assert_eq!(parse_pen_state(this_is_correct), Ok(("", Token::PenUp)));
+        let (_, result) = parse_pen_state(this_is_correct).unwrap();
+        assert_eq!(result, Token::PenUp);
 
         let this_is_also_correct = "\nPENUP\n";
-        assert_eq!(
-            parse_pen_state(this_is_also_correct),
-            Ok(("", Token::PenUp))
-        );
+        let (_, result) = parse_pen_state(this_is_also_correct).unwrap();
+        assert_eq!(result, Token::PenUp);
     }
 
     #[test]
@@ -134,28 +140,31 @@ mod tests {
     #[test]
     fn valid_directions() {
         let forward = "FORWARD 10";
-        assert_eq!(parse_directions(forward), Ok(("", Token::Forward(10))));
+        let (_, result) = parse_directions(forward).unwrap();
+        assert_eq!(result, Token::Forward(10));
 
         let back = "BACK 10";
-        assert_eq!(parse_directions(back), Ok(("", Token::Back(10))));
+        let (_, result) = parse_directions(back).unwrap();
+        assert_eq!(result, Token::Back(10));
 
         let left = "LEFT 10";
-        assert_eq!(parse_directions(left), Ok(("", Token::Left(10))));
+        let (_, result) = parse_directions(left).unwrap();
+        assert_eq!(result, Token::Left(10));
 
         let right = "RIGHT 10";
-        assert_eq!(parse_directions(right), Ok(("", Token::Right(10))));
+        let (_, result) = parse_directions(right).unwrap();
+        assert_eq!(result, Token::Right(10));
     }
 
     #[test]
     fn valid_directions_with_whitespace() {
         let this_is_correct = " BACK 5 ";
-        assert_eq!(parse_directions(this_is_correct), Ok(("", Token::Back(5))));
+        let (_, result) = parse_directions(this_is_correct).unwrap();
+        assert_eq!(result, Token::Back(5));
 
         let this_is_also_correct = "\nRIGHT 20\n";
-        assert_eq!(
-            parse_directions(this_is_also_correct),
-            Ok(("", Token::Right(20)))
-        );
+        let (_, result) = parse_directions(this_is_also_correct).unwrap();
+        assert_eq!(result, Token::Right(20));
     }
 
     #[test]
