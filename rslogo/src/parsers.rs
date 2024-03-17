@@ -2,20 +2,34 @@ use nom::{
     branch::alt,
     bytes::complete::tag,
     character::complete::{multispace0, space1},
+    combinator::map,
+    error::context,
     multi::many0,
     sequence::{delimited, separated_pair},
     IResult,
 };
-use nom_supreme::error::ErrorTree;
 
 #[derive(PartialEq, Debug)]
-enum Token {
+pub enum Token {
     PenUp,
     PenDown,
     Forward(i32),
     Back(i32),
     Left(i32),
     Right(i32),
+}
+use miette::{Context, Diagnostic, IntoDiagnostic, NamedSource, Result, SourceSpan};
+use nom_supreme::{error::ErrorTree, tag::complete::tag as tag_supreme};
+use thiserror::Error;
+
+#[derive(Error, Debug, Diagnostic)]
+#[error("Cannot parse!")]
+#[diagnostic(code(parser::parse_error), help("Placeholder help text"))]
+struct MyParseError {
+    #[source_code]
+    src: NamedSource<String>,
+    #[label("Caused by")]
+    cause: SourceSpan,
 }
 
 /// # Parse pen state commands
@@ -31,22 +45,17 @@ enum Token {
 /// assert_eq!(parse_pen_state("PENDOWN"), Ok(("", Token::PenDown)));
 /// ```
 fn parse_pen_state(input: &str) -> IResult<&str, Token, ErrorTree<&str>> {
-    let (input, parsed): (&str, &str) = delimited(
-        multispace0,
-        alt((tag("PENUP"), tag("PENDOWN"))),
-        multispace0,
-    )(input)?;
-
-    let result = match parsed {
-        "PENUP" => Token::PenUp,
-
-        "PENDOWN" => Token::PenDown,
-
-        // TODO:  THIS SHOULD RETURN AN ERROR OBJECT!
-        _ => unreachable!(),
-    };
-
-    Ok((input, result))
+    context(
+        "When parsing pen state commands",
+        delimited(
+            multispace0,
+            alt((
+                map(tag_supreme("PENUP"), |_| Token::PenUp),
+                map(tag_supreme("PENDOWN"), |_| Token::PenDown),
+            )),
+            multispace0,
+        ),
+    )(input)
 }
 
 fn parse_directions(input: &str) -> IResult<&str, Token, ErrorTree<&str>> {
@@ -85,24 +94,11 @@ fn parse_one(input: &str) -> IResult<&str, Token, ErrorTree<&str>> {
     Ok((remainder, result))
 }
 
-fn parse(input: &str) -> Vec<Token> {
-    let output: IResult<&str, Vec<Token>, ErrorTree<&str>> = many0(parse_one)(input);
-    match output {
-        Ok(output) => {
-            let (remainder, result) = output;
-            println!("Unparsed: {remainder}");
-            result
-        }
-
-        // TODO: Proper error reporting with miette!
-        Err(nom::Err::Error(e)) => {
-            panic!("Error: {:?}", e);
-        }
-
-        _ => {
-            panic!("Errors should be from nom!");
-        }
-    }
+pub fn parse(input: &str) -> Result<(&str, Vec<Token>)> {
+    // TODO: This should probably be all_consuming!
+    Ok(many0(parse_one)(input)
+        .into_diagnostic()
+        .wrap_err("Parsing failed.")?)
 }
 
 #[cfg(test)]
@@ -202,7 +198,10 @@ mod tests {
     #[test]
     fn valid_parse() {
         let input = "PENUP\nBACK 16\nRIGHT 10\nPENDOWN\nextra";
-        let result = parse(input);
+        let (_, result) = match parse(input) {
+            Ok(result) => result,
+            Err(e) => panic!("This shouldn't fail! Error: {:?}", e),
+        };
         assert_eq!(
             result,
             vec![
