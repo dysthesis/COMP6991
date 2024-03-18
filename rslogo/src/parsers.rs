@@ -64,7 +64,7 @@ fn parse_directions(input: Span) -> IResult<Span, Token, ErrorTree<Span>> {
             // The direction and distance must be separated with a space
             space1,
             // Ensure that there is at least one digit for the distance
-            nom::character::complete::i32,
+            preceded(tag("\""), nom::character::complete::i32),
         ),
         // There may or may not be whitespace after the patern
         multispace0,
