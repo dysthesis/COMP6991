@@ -41,10 +41,14 @@ fn main() -> Result<()> {
     let height = args.height;
     let width = args.width;
 
+    // There should be no remainder string from the parser. This should be ensured by nom's all_consuming
     let (_, program) = match parsers::parse(parsers::Span::new(file.as_str())) {
         Ok(res) => res,
         Err(e) => panic!("{:?}", e),
     };
+
+    println!("{:?}", file.as_str());
+    println!("{:?}", program);
 
     // let image = Image::new(width, height);
 

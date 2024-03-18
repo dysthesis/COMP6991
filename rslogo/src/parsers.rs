@@ -1,16 +1,17 @@
 use nom::{
     branch::alt,
-    bytes::complete::tag,
-    character::complete::{multispace0, space1},
-    combinator::map,
+    bytes::complete::{tag, take_until, take_while},
+    character::complete::{multispace0, not_line_ending, space1},
+    combinator::{all_consuming, map, recognize, value},
     error::context,
     multi::many0,
-    sequence::{delimited, separated_pair},
+    sequence::{delimited, preceded, separated_pair},
     IResult,
 };
 
 #[derive(PartialEq, Debug)]
 pub enum Token {
+    Comment,
     PenUp,
     PenDown,
     Forward(i32),
@@ -24,6 +25,9 @@ pub type Span<'a> = LocatedSpan<&'a str>;
 use nom_locate::LocatedSpan;
 use nom_supreme::{error::ErrorTree, tag::complete::tag as tag_supreme};
 
+fn parse_comment(input: Span) -> IResult<Span, Token, ErrorTree<Span>> {
+    map(preceded(tag("//"), take_until("\n")), |_| Token::Comment)(input)
+}
 /// This function is responsible for parsing any commands related to
 /// modifying the pen's state, including `PENUP` and `PENDOWN`. It returns
 /// an instance of `Ok((&str, Token::PenUp))` or `Ok((&str, Token::PenDown))`
@@ -79,14 +83,14 @@ fn parse_directions(input: Span) -> IResult<Span, Token, ErrorTree<Span>> {
 
 fn parse_one(input: Span) -> IResult<Span, Token, ErrorTree<Span>> {
     // Put all of the parsers inside here.
-    let (remainder, result) = alt((parse_directions, parse_pen_state))(input)?;
+    let (remainder, result) = alt((parse_directions, parse_pen_state, parse_comment))(input)?;
 
     Ok((remainder, result))
 }
 
 pub fn parse(input: Span) -> IResult<Span, Vec<Token>, ErrorTree<Span>> {
     // TODO: This should probably be all_consuming!
-    Ok(many0(parse_one)(input)?)
+    all_consuming(many0(parse_one))(input)
 }
 
 #[cfg(test)]
