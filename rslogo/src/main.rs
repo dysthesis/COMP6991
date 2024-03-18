@@ -32,7 +32,9 @@ fn main() -> Result<()> {
         .wrap_err("Failed to open file.")
     {
         Ok(res) => res,
-        Err(e) => panic!("{:?}", e),
+        Err(e) => {
+            return Result::Err(e);
+        }
     };
 
     let image_path = args.image_path;
