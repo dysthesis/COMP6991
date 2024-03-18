@@ -1,12 +1,12 @@
 use nom::{
     branch::alt,
-    bytes::complete::{tag, take_until, take_while},
-    character::complete::{multispace0, not_line_ending, space1},
-    combinator::{all_consuming, map, recognize, value},
+    bytes::complete::{tag, take_until},
+    character::complete::{multispace0, space1},
+    combinator::{all_consuming, map},
     error::context,
     multi::many0,
     sequence::{delimited, preceded, separated_pair},
-    IResult,
+    Finish, IResult,
 };
 
 #[derive(PartialEq, Debug)]
@@ -24,6 +24,8 @@ pub type Span<'a> = LocatedSpan<&'a str>;
 
 use nom_locate::LocatedSpan;
 use nom_supreme::{error::ErrorTree, tag::complete::tag as tag_supreme};
+
+use crate::errors;
 
 fn parse_comment(input: Span) -> IResult<Span, Token, ErrorTree<Span>> {
     map(preceded(tag("//"), take_until("\n")), |_| Token::Comment)(input)
@@ -88,9 +90,14 @@ fn parse_one(input: Span) -> IResult<Span, Token, ErrorTree<Span>> {
     Ok((remainder, result))
 }
 
-pub fn parse(input: Span) -> IResult<Span, Vec<Token>, ErrorTree<Span>> {
+pub fn parse(input: Span) -> Result<Vec<Token>, errors::ParseError> {
     // TODO: This should probably be all_consuming!
-    all_consuming(many0(parse_one))(input)
+    let res = all_consuming(many0(parse_one))(input).finish();
+    match res {
+        // all_consuming should ensure there's no string left, so we can discard the first span
+        Ok((_, res)) => Ok(res),
+        Err(e) => Err(errors::format_parse_error(input.into_fragment(), e)),
+    }
 }
 
 #[cfg(test)]
@@ -189,8 +196,8 @@ mod tests {
 
     #[test]
     fn valid_parse() {
-        let input = Span::new("PENUP\nBACK 16\nRIGHT 10\nPENDOWN\nextra");
-        let (_, result) = match parse(input) {
+        let input = Span::new("PENUP\nBACK 16\nRIGHT 10\nPENDOWN\n");
+        let result = match parse(input) {
             Ok(result) => result,
             Err(e) => panic!("This shouldn't fail! Error: {:?}", e),
         };

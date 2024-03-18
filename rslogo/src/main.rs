@@ -1,9 +1,10 @@
+mod errors;
 mod parsers;
 
 use clap::Parser;
 use unsvg::Image;
 
-use miette::{Context, IntoDiagnostic, Result};
+use miette::{Context, GraphicalReportHandler, IntoDiagnostic, Result};
 
 /// A simple program to parse four arguments using clap.
 #[derive(Parser)]
@@ -21,7 +22,7 @@ struct Args {
     width: u32,
 }
 
-fn main() -> Result<()> {
+fn main() {
     let args: Args = Args::parse();
 
     // Access the parsed arguments
@@ -33,7 +34,8 @@ fn main() -> Result<()> {
     {
         Ok(res) => res,
         Err(e) => {
-            return Result::Err(e);
+            println!("{e}");
+            return;
         }
     };
 
@@ -42,9 +44,18 @@ fn main() -> Result<()> {
     let width = args.width;
 
     // There should be no remainder string from the parser. This should be ensured by nom's all_consuming
-    let (_, program) = match parsers::parse(parsers::Span::new(file.as_str())) {
+    let parse: Result<Vec<parsers::Token>, errors::ParseError> =
+        parsers::parse(parsers::Span::new(file.as_str()));
+    let program = match parse {
         Ok(res) => res,
-        Err(e) => panic!("{:?}", e),
+        Err(e) => {
+            let mut s = String::new();
+            GraphicalReportHandler::new()
+                .render_report(&mut s, &e)
+                .unwrap();
+            println!("{s}");
+            return;
+        }
     };
 
     println!("{:?}", file.as_str());
@@ -73,5 +84,5 @@ fn main() -> Result<()> {
     //     }
     // }
 
-    Ok(())
+    // Ok(())
 }
