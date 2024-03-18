@@ -18,19 +18,7 @@ pub enum Token {
     Left(i32),
     Right(i32),
 }
-use miette::{Context, Diagnostic, IntoDiagnostic, NamedSource, Result, SourceSpan};
 use nom_supreme::{error::ErrorTree, tag::complete::tag as tag_supreme};
-use thiserror::Error;
-
-#[derive(Error, Debug, Diagnostic)]
-#[error("Cannot parse!")]
-#[diagnostic(code(parser::parse_error), help("Placeholder help text"))]
-struct MyParseError {
-    #[source_code]
-    src: NamedSource<String>,
-    #[label("Caused by")]
-    cause: SourceSpan,
-}
 
 /// This function is responsible for parsing any commands related to
 /// modifying the pen's state, including `PENUP` and `PENDOWN`. It returns
@@ -92,11 +80,9 @@ fn parse_one(input: &str) -> IResult<&str, Token, ErrorTree<&str>> {
     Ok((remainder, result))
 }
 
-pub fn parse(input: &str) -> Result<(&str, Vec<Token>)> {
+pub fn parse(input: &str) -> IResult<&str, Vec<Token>, ErrorTree<&str>> {
     // TODO: This should probably be all_consuming!
-    Ok(many0(parse_one)(input)
-        .into_diagnostic()
-        .wrap_err("Parsing failed.")?)
+    Ok(many0(parse_one)(input)?)
 }
 
 #[cfg(test)]
