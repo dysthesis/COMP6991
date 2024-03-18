@@ -18,6 +18,10 @@ pub enum Token {
     Left(i32),
     Right(i32),
 }
+
+pub type Span<'a> = LocatedSpan<&'a str>;
+
+use nom_locate::LocatedSpan;
 use nom_supreme::{error::ErrorTree, tag::complete::tag as tag_supreme};
 
 /// This function is responsible for parsing any commands related to
@@ -30,7 +34,7 @@ use nom_supreme::{error::ErrorTree, tag::complete::tag as tag_supreme};
 /// assert_eq!(parse_pen_state("PENUP"), Ok(("", Token::PenUp)));
 /// assert_eq!(parse_pen_state("PENDOWN"), Ok(("", Token::PenDown)));
 /// ```
-fn parse_pen_state(input: &str) -> IResult<&str, Token, ErrorTree<&str>> {
+fn parse_pen_state(input: Span) -> IResult<Span, Token, ErrorTree<Span>> {
     context(
         "When parsing pen state commands",
         delimited(
@@ -44,7 +48,7 @@ fn parse_pen_state(input: &str) -> IResult<&str, Token, ErrorTree<&str>> {
     )(input)
 }
 
-fn parse_directions(input: &str) -> IResult<&str, Token, ErrorTree<&str>> {
+fn parse_directions(input: Span) -> IResult<Span, Token, ErrorTree<Span>> {
     let (input, (direction, distance)) = delimited(
         // There may or may not be any whitespace before the pattern
         multispace0,
@@ -60,7 +64,7 @@ fn parse_directions(input: &str) -> IResult<&str, Token, ErrorTree<&str>> {
         multispace0,
     )(input)?;
 
-    let result = match direction {
+    let result = match direction.into_fragment() {
         "FORWARD" => Token::Forward(distance),
         "BACK" => Token::Back(distance),
         "LEFT" => Token::Left(distance),
@@ -73,14 +77,14 @@ fn parse_directions(input: &str) -> IResult<&str, Token, ErrorTree<&str>> {
     Ok((input, result))
 }
 
-fn parse_one(input: &str) -> IResult<&str, Token, ErrorTree<&str>> {
+fn parse_one(input: Span) -> IResult<Span, Token, ErrorTree<Span>> {
     // Put all of the parsers inside here.
     let (remainder, result) = alt((parse_directions, parse_pen_state))(input)?;
 
     Ok((remainder, result))
 }
 
-pub fn parse(input: &str) -> IResult<&str, Vec<Token>, ErrorTree<&str>> {
+pub fn parse(input: Span) -> IResult<Span, Vec<Token>, ErrorTree<Span>> {
     // TODO: This should probably be all_consuming!
     Ok(many0(parse_one)(input)?)
 }
@@ -91,83 +95,83 @@ mod tests {
 
     #[test]
     fn valid_states() {
-        let penup = "PENUP";
+        let penup = Span::new("PENUP");
         let (_, result) = parse_pen_state(penup).unwrap();
         assert_eq!(result, Token::PenUp);
 
-        let pendown = "PENDOWN";
+        let pendown = Span::new("PENDOWN");
         let (_, result) = parse_pen_state(pendown).unwrap();
         assert_eq!(result, Token::PenDown);
     }
 
     #[test]
     fn valid_states_with_whitespace() {
-        let this_is_correct = " PENUP ";
+        let this_is_correct = Span::new(" PENUP ");
         let (_, result) = parse_pen_state(this_is_correct).unwrap();
         assert_eq!(result, Token::PenUp);
 
-        let this_is_also_correct = "\nPENUP\n";
+        let this_is_also_correct = Span::new("\nPENUP\n");
         let (_, result) = parse_pen_state(this_is_also_correct).unwrap();
         assert_eq!(result, Token::PenUp);
     }
 
     #[test]
     fn invalid_states() {
-        let invalid = "PENSIDEWAYS";
+        let invalid = Span::new("PENSIDEWAYS");
         assert!(parse_pen_state(invalid).is_err());
     }
 
     #[test]
     fn valid_directions() {
-        let forward = "FORWARD 10";
+        let forward = Span::new("FORWARD 10");
         let (_, result) = parse_directions(forward).unwrap();
         assert_eq!(result, Token::Forward(10));
 
-        let back = "BACK 10";
+        let back = Span::new("BACK 10");
         let (_, result) = parse_directions(back).unwrap();
         assert_eq!(result, Token::Back(10));
 
-        let left = "LEFT 10";
+        let left = Span::new("LEFT 10");
         let (_, result) = parse_directions(left).unwrap();
         assert_eq!(result, Token::Left(10));
 
-        let right = "RIGHT 10";
+        let right = Span::new("RIGHT 10");
         let (_, result) = parse_directions(right).unwrap();
         assert_eq!(result, Token::Right(10));
     }
 
     #[test]
     fn valid_directions_with_whitespace() {
-        let this_is_correct = " BACK 5 ";
+        let this_is_correct = Span::new(" BACK 5 ");
         let (_, result) = parse_directions(this_is_correct).unwrap();
         assert_eq!(result, Token::Back(5));
 
-        let this_is_also_correct = "\nRIGHT 20\n";
+        let this_is_also_correct = Span::new("\nRIGHT 20\n");
         let (_, result) = parse_directions(this_is_also_correct).unwrap();
         assert_eq!(result, Token::Right(20));
     }
 
     #[test]
     fn invalid_directions() {
-        let invalid = "NOWHERE 10";
+        let invalid = Span::new("NOWHERE 10");
         assert!(parse_directions(invalid).is_err());
     }
 
     #[test]
     fn invalid_directions_no_distance() {
-        let invalid = "FORWARD";
+        let invalid = Span::new("FORWARD");
         assert!(parse_directions(invalid).is_err());
     }
 
     #[test]
     fn invalid_directions_no_whitespace() {
-        let invalid = "BACK4";
+        let invalid = Span::new("BACK4");
         assert!(parse_directions(invalid).is_err());
     }
 
     #[test]
     fn valid_parse_one() {
-        let input = "PENUP\nFORWARD 4\nPENDOWN";
+        let input = Span::new("PENUP\nFORWARD 4\nPENDOWN");
         let (remainder, penup) = parse_one(input).unwrap();
         assert_eq!(penup, Token::PenUp);
 
@@ -176,12 +180,12 @@ mod tests {
 
         let (remainder, pendown) = parse_one(remainder).unwrap();
         assert_eq!(pendown, Token::PenDown);
-        assert_eq!(remainder, "");
+        assert_eq!(remainder.into_fragment(), "");
     }
 
     #[test]
     fn valid_parse() {
-        let input = "PENUP\nBACK 16\nRIGHT 10\nPENDOWN\nextra";
+        let input = Span::new("PENUP\nBACK 16\nRIGHT 10\nPENDOWN\nextra");
         let (_, result) = match parse(input) {
             Ok(result) => result,
             Err(e) => panic!("This shouldn't fail! Error: {:?}", e),

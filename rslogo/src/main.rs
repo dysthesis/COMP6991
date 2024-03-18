@@ -39,7 +39,7 @@ fn main() -> Result<()> {
     let height = args.height;
     let width = args.width;
 
-    let (_, program) = match parsers::parse(file.as_str()) {
+    let (_, program) = match parsers::parse(parsers::Span::new(file.as_str())) {
         Ok(res) => res,
         Err(e) => panic!("{:?}", e),
     };
