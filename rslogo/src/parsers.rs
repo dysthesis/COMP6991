@@ -23,12 +23,20 @@ pub enum Token {
 pub type Span<'a> = LocatedSpan<&'a str>;
 
 use nom_locate::LocatedSpan;
-use nom_supreme::{error::ErrorTree, tag::complete::tag as tag_supreme, ParserExt};
+use nom_supreme::{
+    error::{ErrorTree, Expectation},
+    tag::complete::tag as tag_supreme,
+    ParserExt,
+};
 
 use crate::errors;
 
 fn parse_comment(input: Span) -> IResult<Span, Token, ErrorTree<Span>> {
-    map(preceded(tag("//"), take_until("\n")), |_| Token::Comment)(input)
+    map(preceded(tag("//"), take_until("\n")), |_| Token::Comment)
+        // Tolerate any surrounding whitespace
+        .delimited_by(multispace0)
+        .context("When attempting to parse a comment")
+        .parse(input)
 }
 
 /// This function is responsible for parsing any commands related to
@@ -51,21 +59,6 @@ fn parse_pen_state(input: Span) -> IResult<Span, Token, ErrorTree<Span>> {
         alt((
             map(tag_supreme("PENUP"), |_| Token::PenUp),
             map(tag_supreme("PENDOWN"), |_| Token::PenDown),
-            map(
-                separated_pair(
-                    tag_supreme("SETPENCOLOR"), // command
-                    // Ignore however many spaces comes between "SETPENCOLOR" and the value
-                    multispace0,
-                    preceded(tag_supreme("\""), nom::character::complete::i32), // value
-                ),
-                // Verify that the integer is within the valid range of values
-                |(_, value)| match value {
-                    value if (value >= 0 && value <= 15) => Token::SetPenColor(value),
-                    _ => {
-                        todo!()
-                    }
-                },
-            ),
         )),
         multispace0,
     )
@@ -73,21 +66,42 @@ fn parse_pen_state(input: Span) -> IResult<Span, Token, ErrorTree<Span>> {
     .parse(input)
 }
 
-fn parse_directions(input: Span) -> IResult<Span, Token, ErrorTree<Span>> {
-    let (input, (direction, distance)) = delimited(
-        // There may or may not be any whitespace before the pattern
+fn parse_pen_color(input: Span) -> IResult<Span, Token, ErrorTree<Span>> {
+    match separated_pair(
+        tag_supreme("SETPENCOLOR"),
         multispace0,
-        separated_pair(
-            // Recognise any of these strings as a direction
-            alt((tag("FORWARD"), tag("BACK"), tag("LEFT"), tag("RIGHT"))),
-            // The direction and distance must be separated with a space
-            space1,
-            // Ensure that there is at least one digit for the distance
-            preceded(tag("\""), nom::character::complete::i32),
-        ),
-        // There may or may not be whitespace after the patern
-        multispace0,
+        preceded(tag("\""), nom::character::complete::i32),
     )
+    // Tolerate surrounding whitespace
+    .delimited_by(multispace0)
+    // Add context in case of error
+    .context("When parsing pen colour command")
+    .parse(input)
+    {
+        Ok((remainder, (_, value))) if value < 0 || value > 15 => {
+            let err = nom::Err::Error(ErrorTree::Base {
+                location: remainder,
+                kind: nom_supreme::error::BaseErrorKind::Expected(Expectation::Digit),
+            });
+            Result::Err(err)
+        }
+        Ok((remainder, (_, value))) => Ok((remainder, Token::SetPenColor(value))),
+        Err(e) => Err(e),
+    }
+}
+
+fn parse_directions(input: Span) -> IResult<Span, Token, ErrorTree<Span>> {
+    let (input, (direction, distance)) = separated_pair(
+        // Recognise any of these strings as a direction
+        alt((tag("FORWARD"), tag("BACK"), tag("LEFT"), tag("RIGHT"))),
+        // The direction and distance must be separated with a space
+        space1,
+        // Ensure that there is at least one digit for the distance
+        preceded(tag("\""), nom::character::complete::i32),
+    )
+    // Tolerate surrounding whitespace, if any
+    .delimited_by(multispace0)
+    // Add context in case of errors
     .context("When parsing turtle direction commands")
     .parse(input)?;
 
@@ -107,9 +121,14 @@ fn parse_directions(input: Span) -> IResult<Span, Token, ErrorTree<Span>> {
 
 fn parse_one(input: Span) -> IResult<Span, Token, ErrorTree<Span>> {
     // Put all of the parsers inside here.
-    let (remainder, result) = alt((parse_directions, parse_pen_state, parse_comment))
-        .context("When trying to determine the parser to use")
-        .parse(input)?;
+    let (remainder, result) = alt((
+        parse_directions,
+        parse_pen_state,
+        parse_comment,
+        parse_pen_color,
+    ))
+    .context("When trying to determine the parser to use")
+    .parse(input)?;
 
     Ok((remainder, result))
 }
