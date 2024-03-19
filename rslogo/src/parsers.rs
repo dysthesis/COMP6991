@@ -2,7 +2,7 @@ use nom::{
     branch::alt,
     bytes::complete::{tag, take_until},
     character::complete::{multispace0, space1},
-    combinator::map,
+    combinator::{cut, map},
     multi::many0,
     sequence::{delimited, preceded, separated_pair},
     Finish, IResult, Parser,
@@ -57,8 +57,10 @@ fn parse_pen_state(input: Span) -> IResult<Span, Token, ErrorTree<Span>> {
     delimited(
         multispace0,
         alt((
-            map(tag_supreme("PENUP"), |_| Token::PenUp),
-            map(tag_supreme("PENDOWN"), |_| Token::PenDown),
+            map(tag_supreme("PENUP"), |_| Token::PenUp)
+                .context("When attempting to parse as PENUP"),
+            map(tag_supreme("PENDOWN"), |_| Token::PenDown)
+                .context("When attempting to parse as PENDOWN"),
         )),
         multispace0,
     )
@@ -75,7 +77,7 @@ fn parse_pen_color(input: Span) -> IResult<Span, Token, ErrorTree<Span>> {
     // Tolerate surrounding whitespace
     .delimited_by(multispace0)
     // Add context in case of error
-    .context("When parsing pen colour command")
+    .context("When attempting to parse as SETPENCOLOR")
     .parse(input)
     {
         Ok((remainder, (_, value))) if value < 0 || value > 15 => {
@@ -93,11 +95,16 @@ fn parse_pen_color(input: Span) -> IResult<Span, Token, ErrorTree<Span>> {
 fn parse_directions(input: Span) -> IResult<Span, Token, ErrorTree<Span>> {
     let (input, (direction, distance)) = separated_pair(
         // Recognise any of these strings as a direction
-        alt((tag("FORWARD"), tag("BACK"), tag("LEFT"), tag("RIGHT"))),
+        alt((
+            tag("FORWARD").context("When attempting to parse as FORWARD"),
+            tag("BACK").context("When attempting to parse as BACK"),
+            tag("LEFT").context("When attempting to parse as LEFT"),
+            tag("RIGHT").context("When attempting to parse as RIGHT"),
+        )),
         // The direction and distance must be separated with a space
         space1,
         // Ensure that there is at least one digit for the distance
-        preceded(tag("\""), nom::character::complete::i32),
+        nom::character::complete::i32.preceded_by(tag("\"")),
     )
     // Tolerate surrounding whitespace, if any
     .delimited_by(multispace0)
@@ -127,6 +134,11 @@ fn parse_one(input: Span) -> IResult<Span, Token, ErrorTree<Span>> {
         parse_comment,
         parse_pen_color,
     ))
+    // Convert Error to Failure (unrecoverable) to get more backtrace.
+    // See: https://stackoverflow.com/questions/74993188/how-to-propagate-nom-fail-context-out-of-many0
+    // Note that this may be detrimental to larger parser chains, but it should be fine here: https://github.com/rust-bakery/nom/issues/1527
+    .cut()
+    // Add context to potential error messages
     .context("When trying to determine the parser to use")
     .parse(input)?;
 
@@ -134,11 +146,13 @@ fn parse_one(input: Span) -> IResult<Span, Token, ErrorTree<Span>> {
 }
 
 pub fn parse(input: Span) -> Result<Vec<Token>, errors::ParseError> {
-    // TODO: This should probably be all_consuming!
     let res = many0(parse_one)
+        // Fail if there are any unparsed text
         .all_consuming()
+        // Add context to potential error messages
         .context("When trying to parse the file")
         .parse(input)
+        // Convert errors formats to more standard formats (rather than nom's)
         .finish();
 
     match res {
