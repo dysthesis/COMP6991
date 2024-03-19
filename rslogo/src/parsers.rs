@@ -1,8 +1,10 @@
+use std::ops::RangeInclusive;
+
 use nom::{
     branch::alt,
     bytes::complete::{tag, take_until},
     character::complete::{multispace0, space1},
-    combinator::{cut, map},
+    combinator::map,
     multi::many0,
     sequence::{delimited, preceded, separated_pair},
     Finish, IResult, Parser,
@@ -80,7 +82,7 @@ fn parse_pen_color(input: Span) -> IResult<Span, Token, ErrorTree<Span>> {
     .context("When attempting to parse as SETPENCOLOR")
     .parse(input)
     {
-        Ok((remainder, (_, value))) if value < 0 || value > 15 => {
+        Ok((remainder, (_, value))) if RangeInclusive::new(0, 15).contains(&value) => {
             let err = nom::Err::Error(ErrorTree::Base {
                 location: remainder,
                 kind: nom_supreme::error::BaseErrorKind::Expected(Expectation::Digit),
@@ -179,87 +181,87 @@ mod tests {
 
     #[test]
     fn valid_states_with_whitespace() {
-        let this_is_correct = Span::new(" PENUP ");
-        let (_, result) = parse_pen_state(this_is_correct).unwrap();
+        let this_is_correct: Span = Span::new(" PENUP ");
+        let (_, result): (_, Token) = parse_pen_state(this_is_correct).unwrap();
         assert_eq!(result, Token::PenUp);
 
-        let this_is_also_correct = Span::new("\nPENUP\n");
-        let (_, result) = parse_pen_state(this_is_also_correct).unwrap();
+        let this_is_also_correct: Span = Span::new("\nPENUP\n");
+        let (_, result): (_, Token) = parse_pen_state(this_is_also_correct).unwrap();
         assert_eq!(result, Token::PenUp);
     }
 
     #[test]
     fn invalid_states() {
-        let invalid = Span::new("PENSIDEWAYS");
+        let invalid: Span = Span::new("PENSIDEWAYS");
         assert!(parse_pen_state(invalid).is_err());
     }
 
     #[test]
     fn valid_directions() {
-        let forward = Span::new("FORWARD \"10");
-        let (_, result) = parse_directions(forward).unwrap();
+        let forward: Span = Span::new("FORWARD \"10");
+        let (_, result): (_, Token) = parse_directions(forward).unwrap();
         assert_eq!(result, Token::Forward(10));
 
-        let back = Span::new("BACK \"10");
-        let (_, result) = parse_directions(back).unwrap();
+        let back: Span = Span::new("BACK \"10");
+        let (_, result): (_, Token) = parse_directions(back).unwrap();
         assert_eq!(result, Token::Back(10));
 
-        let left = Span::new("LEFT \"10");
-        let (_, result) = parse_directions(left).unwrap();
+        let left: Span = Span::new("LEFT \"10");
+        let (_, result): (_, Token) = parse_directions(left).unwrap();
         assert_eq!(result, Token::Left(10));
 
-        let right = Span::new("RIGHT \"10");
-        let (_, result) = parse_directions(right).unwrap();
+        let right: Span = Span::new("RIGHT \"10");
+        let (_, result): (_, Token) = parse_directions(right).unwrap();
         assert_eq!(result, Token::Right(10));
     }
 
     #[test]
     fn valid_directions_with_whitespace() {
-        let this_is_correct = Span::new(" BACK \"5 ");
+        let this_is_correct: Span = Span::new(" BACK \"5 ");
         let (_, result) = parse_directions(this_is_correct).unwrap();
         assert_eq!(result, Token::Back(5));
 
-        let this_is_also_correct = Span::new("\nRIGHT \"20\n");
+        let this_is_also_correct: Span = Span::new("\nRIGHT \"20\n");
         let (_, result) = parse_directions(this_is_also_correct).unwrap();
         assert_eq!(result, Token::Right(20));
     }
 
     #[test]
     fn invalid_directions() {
-        let invalid = Span::new("NOWHERE \"10");
+        let invalid: Span = Span::new("NOWHERE \"10");
         assert!(parse_directions(invalid).is_err());
     }
 
     #[test]
     fn invalid_directions_no_distance() {
-        let invalid = Span::new("FORWARD");
+        let invalid: Span = Span::new("FORWARD");
         assert!(parse_directions(invalid).is_err());
     }
 
     #[test]
     fn invalid_directions_no_whitespace() {
-        let invalid = Span::new("BACK\"4");
+        let invalid: Span = Span::new("BACK\"4");
         assert!(parse_directions(invalid).is_err());
     }
 
     #[test]
     fn valid_parse_one() {
-        let input = Span::new("PENUP\nFORWARD \"4\nPENDOWN");
-        let (remainder, penup) = parse_one(input).unwrap();
+        let input: Span = Span::new("PENUP\nFORWARD \"4\nPENDOWN");
+        let (remainder, penup): (Span, Token) = parse_one(input).unwrap();
         assert_eq!(penup, Token::PenUp);
 
-        let (remainder, forward) = parse_one(remainder).unwrap();
+        let (remainder, forward): (Span, Token) = parse_one(remainder).unwrap();
         assert_eq!(forward, Token::Forward(4));
 
-        let (remainder, pendown) = parse_one(remainder).unwrap();
+        let (remainder, pendown): (Span, Token) = parse_one(remainder).unwrap();
         assert_eq!(pendown, Token::PenDown);
         assert_eq!(remainder.into_fragment(), "");
     }
 
     #[test]
     fn valid_parse() {
-        let input = Span::new("PENUP\nBACK \"16\nRIGHT \"10\nPENDOWN\n");
-        let result = match parse(input) {
+        let input: Span = Span::new("PENUP\nBACK \"16\nRIGHT \"10\nPENDOWN\n");
+        let result: Vec<Token> = match parse(input) {
             Ok(result) => result,
             Err(e) => panic!("This shouldn't fail! Error: {:?}", e),
         };
