@@ -39,9 +39,9 @@ fn main() {
         }
     };
 
-    let image_path = args.image_path;
-    let height = args.height;
-    let width = args.width;
+    let _image_path = args.image_path;
+    let _height = args.height;
+    let _width = args.width;
 
     // There should be no remainder string from the parser. This should be ensured by nom's all_consuming
     let parse: Result<Vec<parsers::Token>, errors::ParseError> =
@@ -49,6 +49,7 @@ fn main() {
     let program = match parse {
         Ok(res) => res,
         Err(e) => {
+            // TODO: Figure out how to return the error as a report instead!
             let mut s = String::new();
             GraphicalReportHandler::new()
                 .render_report(&mut s, &e)
