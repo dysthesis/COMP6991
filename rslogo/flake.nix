@@ -58,6 +58,7 @@
             just
             cargo
             rustc
+            bacon
             cargo-watch
             cargo-tarpaulin
             rust-analyzer
