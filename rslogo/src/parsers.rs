@@ -6,7 +6,7 @@ use nom::{
     character::complete::{multispace0, space1},
     combinator::map,
     multi::many0,
-    sequence::{delimited, preceded, separated_pair},
+    sequence::{preceded, separated_pair},
     Finish, IResult, Parser,
 };
 
@@ -35,8 +35,6 @@ use crate::errors;
 
 fn parse_comment(input: Span) -> IResult<Span, Token, ErrorTree<Span>> {
     map(preceded(tag("//"), take_until("\n")), |_| Token::Comment)
-        // Tolerate any surrounding whitespace
-        .delimited_by(multispace0)
         .context("When attempting to parse a comment")
         .parse(input)
 }
@@ -56,16 +54,12 @@ fn parse_pen_state(input: Span) -> IResult<Span, Token, ErrorTree<Span>> {
      * Delimited is used to get rid of whatever whitespace comes before
      * or after the command.
      */
-    delimited(
-        multispace0,
-        alt((
-            map(tag_supreme("PENUP"), |_| Token::PenUp)
-                .context("When attempting to parse as PENUP"),
-            map(tag_supreme("PENDOWN"), |_| Token::PenDown)
-                .context("When attempting to parse as PENDOWN"),
-        )),
-        multispace0,
-    )
+
+    alt((
+        map(tag_supreme("PENUP"), |_| Token::PenUp).context("When attempting to parse as PENUP"),
+        map(tag_supreme("PENDOWN"), |_| Token::PenDown)
+            .context("When attempting to parse as PENDOWN"),
+    ))
     .context("When attempting to parse pen state commands")
     .parse(input)
 }
@@ -77,7 +71,6 @@ fn parse_pen_color(input: Span) -> IResult<Span, Token, ErrorTree<Span>> {
         preceded(tag("\""), nom::character::complete::i32),
     )
     // Tolerate surrounding whitespace
-    .delimited_by(multispace0)
     // Add context in case of error
     .context("When attempting to parse as SETPENCOLOR")
     .parse(input)
@@ -108,8 +101,6 @@ fn parse_directions(input: Span) -> IResult<Span, Token, ErrorTree<Span>> {
         // Ensure that there is at least one digit for the distance
         nom::character::complete::i32.preceded_by(tag("\"")),
     )
-    // Tolerate surrounding whitespace, if any
-    .delimited_by(multispace0)
     // Add context in case of errors
     .context("When parsing turtle direction commands")
     .parse(input)?;
@@ -136,6 +127,8 @@ fn parse_one(input: Span) -> IResult<Span, Token, ErrorTree<Span>> {
         parse_comment,
         parse_pen_color,
     ))
+    // Ignore surrounding whitespace, if any.
+    .delimited_by(multispace0)
     // Convert Error to Failure (unrecoverable) to get more backtrace.
     // See: https://stackoverflow.com/questions/74993188/how-to-propagate-nom-fail-context-out-of-many0
     // Note that this may be detrimental to larger parser chains, but it should be fine here: https://github.com/rust-bakery/nom/issues/1527
@@ -180,17 +173,6 @@ mod tests {
     }
 
     #[test]
-    fn valid_states_with_whitespace() {
-        let this_is_correct: Span = Span::new(" PENUP ");
-        let (_, result): (_, Token) = parse_pen_state(this_is_correct).unwrap();
-        assert_eq!(result, Token::PenUp);
-
-        let this_is_also_correct: Span = Span::new("\nPENUP\n");
-        let (_, result): (_, Token) = parse_pen_state(this_is_also_correct).unwrap();
-        assert_eq!(result, Token::PenUp);
-    }
-
-    #[test]
     fn invalid_states() {
         let invalid: Span = Span::new("PENSIDEWAYS");
         assert!(parse_pen_state(invalid).is_err());
@@ -213,17 +195,6 @@ mod tests {
         let right: Span = Span::new("RIGHT \"10");
         let (_, result): (_, Token) = parse_directions(right).unwrap();
         assert_eq!(result, Token::Right(10));
-    }
-
-    #[test]
-    fn valid_directions_with_whitespace() {
-        let this_is_correct: Span = Span::new(" BACK \"5 ");
-        let (_, result) = parse_directions(this_is_correct).unwrap();
-        assert_eq!(result, Token::Back(5));
-
-        let this_is_also_correct: Span = Span::new("\nRIGHT \"20\n");
-        let (_, result) = parse_directions(this_is_also_correct).unwrap();
-        assert_eq!(result, Token::Right(20));
     }
 
     #[test]
