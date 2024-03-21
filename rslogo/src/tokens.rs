@@ -16,10 +16,28 @@ macro_rules! arithmetic_operation {
         }
     }};
 }
+/// Macro to reduce boilerplate for arithmetic expressions
+macro_rules! comparison {
+    ($op:ident, $lhs:expr, $rhs:expr, $context:expr) => {{
+        let lhs_result: EvalResult = $lhs.eval($context)?;
+        let rhs_result: EvalResult = $rhs.eval($context)?;
 
+        match (lhs_result, rhs_result) {
+            (EvalResult::Float(lhs_val), EvalResult::Float(rhs_val)) => {
+                Ok(EvalResult::Bool(lhs_val.$op(&rhs_val)))
+            }
+            (EvalResult::Bool(lhs_val), EvalResult::Bool(rhs_val)) => {
+                Ok(EvalResult::Bool(lhs_val.$op(&rhs_val)))
+            }
+            _ => Err(InterpreterError::unsupported_operation(
+                "comparison of different types",
+            )),
+        }
+    }};
+}
 /// Macro to reduce boilerplate for logical operations
 macro_rules! logical_operation {
-    ($op:tt, $lhs:expr, $rhs:expr, $context:expr, $err_msg:expr) => {{
+    ($op:tt, $lhs:expr, $rhs:expr, $context:expr) => {{
         let lhs_result: EvalResult = $lhs.eval($context)?;
         let rhs_result: EvalResult = $rhs.eval($context)?;
 
@@ -27,29 +45,67 @@ macro_rules! logical_operation {
             (EvalResult::Bool(lhs_val), EvalResult::Bool(rhs_val)) => {
                 Ok(EvalResult::Bool(lhs_val $op rhs_val))
             }
-            _ => Err(InterpreterError::unsupported_operation($err_msg)),
+            _ => Err(InterpreterError::unsupported_operation("logical operation of non-booleans")),
         }
     }};
 }
 
-#[derive(Copy, Clone)] // I think there might be a better way of doing this, but bools and f32 are small and cheap anyways
+/// Ensure that only these types can ever be ultimately produced by the evaluation of expressions
+#[derive(Debug, Copy, Clone, PartialEq)] // I think there might be a better way of doing this, but bools and f32 are small and cheap anyways
 pub(crate) enum EvalResult {
     Bool(bool),
     Float(f32),
 }
 
+/// Expressions are instructions which returns a value, but do not perform any actions.
+/// This is contrary to Commands, which perform actions, but do not return any value.
+///
+/// Example:
+/// ```
+/// let lhs = Expression::Value(EvalResult::Float(1));
+/// let rhs = Expression::Value(EvalResult::Float(2));
+/// assert_eq!(Expression::Add(lhs, rhs), EvalResult::Float(3));
+/// ```
+#[derive(Debug, PartialEq)]
 pub(crate) enum Expression {
+    /// The most fundamental expression. This would simply evaluate to itself.
     Value(EvalResult),
+
+    /// Query the value for a variable name
     GetVariable(String),
+
+    /// Add two expressions together
     Add(Box<Expression>, Box<Expression>),
+
+    /// Subtract one expression from another
+    /// Note that `Subtract(a, b)` is interpreted as `a - b`
     Subtract(Box<Expression>, Box<Expression>),
+
+    /// Multiply two expressions together
     Multiply(Box<Expression>, Box<Expression>),
+
+    /// Divide one expression by another
+    /// Note that `Divide(a, b)` is interpreted as `a / b`
     Divide(Box<Expression>, Box<Expression>),
+
+    /// Check if two expressions have equivalent values
     Equals(Box<Expression>, Box<Expression>),
+
+    /// Check if two expressions do not have equivalent values
     NotEquals(Box<Expression>, Box<Expression>),
+
+    /// Check if one expression is strictly greater than the other
+    /// Note that `GreaterThan(a, b)` is interpreted as `a > b`.
     GreaterThan(Box<Expression>, Box<Expression>),
+
+    /// Check if one expression is strictly less than the other.
+    /// Note that `LessThan(a, b)` is interpreted as `a < b`.
     LessThan(Box<Expression>, Box<Expression>),
+
+    /// Return true if both expressions evaluates to true.
     And(Box<Expression>, Box<Expression>),
+
+    /// Returns true if at least one of the expressions evaluates to true.
     Or(Box<Expression>, Box<Expression>),
 }
 
@@ -74,6 +130,8 @@ impl Expression {
             Expression::Multiply(lhs, rhs) => {
                 arithmetic_operation!(mul, lhs, rhs, context, "multiplication of booleans")
             }
+
+            // `Divide`, in particular, needs additional error checking
             Expression::Divide(lhs, rhs) => {
                 let divisor = rhs.eval(context)?;
                 match divisor {
@@ -84,24 +142,12 @@ impl Expression {
                     _ => arithmetic_operation!(div, lhs, rhs, context, "division of booleans"),
                 }
             }
-            Expression::Equals(lhs, rhs) => {
-                logical_operation!(==, lhs, rhs, context, "comparison of non-booleans")
-            }
-            Expression::NotEquals(lhs, rhs) => {
-                logical_operation!(!=, lhs, rhs, context, "comparison of non-booleans")
-            }
-            Expression::GreaterThan(lhs, rhs) => {
-                logical_operation!(>, lhs, rhs, context, "comparison of non-booleans")
-            }
-            Expression::LessThan(lhs, rhs) => {
-                logical_operation!(<, lhs, rhs, context, "comparison of non-booleans")
-            }
-            Expression::And(lhs, rhs) => {
-                logical_operation!(&&, lhs, rhs, context, "logical operation of non-booleans")
-            }
-            Expression::Or(lhs, rhs) => {
-                logical_operation!(||, lhs, rhs, context, "logical operation of non-booleans")
-            }
+            Expression::Equals(lhs, rhs) => comparison!(eq, lhs, rhs, context),
+            Expression::NotEquals(lhs, rhs) => comparison!(ne, lhs, rhs, context),
+            Expression::GreaterThan(lhs, rhs) => comparison!(gt, lhs, rhs, context),
+            Expression::LessThan(lhs, rhs) => comparison!(lt, lhs, rhs, context),
+            Expression::And(lhs, rhs) => logical_operation!(&&, lhs, rhs, context),
+            Expression::Or(lhs, rhs) => logical_operation!(||, lhs, rhs, context),
         }
     }
 }
@@ -160,19 +206,19 @@ impl Command {
         match self {
             Command::PenUp => todo!(),
             Command::PenDown => todo!(),
-            Command::Forward(_) => todo!(),
-            Command::Back(_) => todo!(),
-            Command::Left(_) => todo!(),
-            Command::Right(_) => todo!(),
-            Command::SetPenColor(_) => todo!(),
-            Command::Turn(_) => todo!(),
-            Command::SetHeading(_) => todo!(),
-            Command::SetX(_) => todo!(),
-            Command::SetY(_) => todo!(),
+            Command::Forward(distance) => todo!(),
+            Command::Back(distance) => todo!(),
+            Command::Left(distance) => todo!(),
+            Command::Right(distance) => todo!(),
+            Command::SetPenColor(distance) => todo!(),
+            Command::Turn(distance) => todo!(),
+            Command::SetHeading(distance) => todo!(),
+            Command::SetX(x) => todo!(),
+            Command::SetY(y) => todo!(),
             Command::MakeVariable(name, value) => todo!(),
-            Command::SetVariable(_, _) => todo!(),
-            Command::If(_, _) => todo!(),
-            Command::While(_, _) => todo!(),
+            Command::SetVariable(name, value) => todo!(),
+            Command::If(expression, commands) => todo!(),
+            Command::While(expression, command) => todo!(),
         }
     }
 }
@@ -198,9 +244,482 @@ impl Program {
     /// Execute the program by iterating through the `commands` vector and executing them.
     fn execute(&mut self) {
         // We can take the command vector as they're not going to be used again after this
-        let commands = std::mem::take(&mut self.commands);
+        let commands: Vec<Command> = std::mem::take(&mut self.commands);
         commands.into_iter().for_each(|command: Command| {
             command.execute(self);
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn valid_add() {
+        // Dummy program to satisfy parameter
+        let context: Program = Program::new();
+        let lhs: Expression = Expression::Value(EvalResult::Float(1_f32));
+        let rhs: Expression = Expression::Value(EvalResult::Float(2_f32));
+        assert_eq!(
+            Expression::Add(Box::new(lhs), Box::new(rhs))
+                .eval(&context)
+                .unwrap(),
+            Expression::Value(EvalResult::Float(3_f32))
+                .eval(&context)
+                .unwrap(),
+        );
+    }
+    #[test]
+    fn valid_sub() {
+        // Dummy program to satisfy parameter
+        let context: Program = Program::new();
+        let lhs: Expression = Expression::Value(EvalResult::Float(1_f32));
+        let rhs: Expression = Expression::Value(EvalResult::Float(2_f32));
+        assert_eq!(
+            Expression::Subtract(Box::new(lhs), Box::new(rhs))
+                .eval(&context)
+                .unwrap(),
+            Expression::Value(EvalResult::Float(-1_f32))
+                .eval(&context)
+                .unwrap(),
+        );
+    }
+    #[test]
+    fn valid_multiply() {
+        // Dummy program to satisfy parameter
+        let context: Program = Program::new();
+        let lhs: Expression = Expression::Value(EvalResult::Float(1_f32));
+        let rhs: Expression = Expression::Value(EvalResult::Float(2_f32));
+        assert_eq!(
+            Expression::Multiply(Box::new(lhs), Box::new(rhs))
+                .eval(&context)
+                .unwrap(),
+            Expression::Value(EvalResult::Float(2_f32))
+                .eval(&context)
+                .unwrap(),
+        );
+    }
+    #[test]
+    fn valid_divide() {
+        // Dummy program to satisfy parameter
+        let context: Program = Program::new();
+        let lhs: Expression = Expression::Value(EvalResult::Float(1_f32));
+        let rhs: Expression = Expression::Value(EvalResult::Float(2_f32));
+        assert_eq!(
+            Expression::Divide(Box::new(lhs), Box::new(rhs))
+                .eval(&context)
+                .unwrap(),
+            Expression::Value(EvalResult::Float(0.5_f32))
+                .eval(&context)
+                .unwrap(),
+        );
+    }
+    #[test]
+    fn invalid_divide_by_zero() {
+        // Dummy program to satisfy parameter
+        let context: Program = Program::new();
+
+        let lhs: Expression = Expression::Value(EvalResult::Float(1_f32));
+        let rhs: Expression = Expression::Value(EvalResult::Float(0_f32));
+
+        assert_eq!(
+            Expression::Divide(Box::new(lhs), Box::new(rhs)).eval(&context),
+            Err(InterpreterError::division_by_zero())
+        )
+    }
+
+    #[test]
+    fn invalid_arithmetic_on_bool() {
+        // Dummy program to satisfy parameter
+        let context: Program = Program::new();
+        let lhs: Expression = Expression::Value(EvalResult::Bool(true));
+        let rhs: Expression = Expression::Value(EvalResult::Bool(false));
+
+        assert_eq!(
+            Expression::Add(Box::new(lhs), Box::new(rhs)).eval(&context),
+            Err(InterpreterError::unsupported_operation(
+                "addition of booleans"
+            ))
+        );
+        let lhs: Expression = Expression::Value(EvalResult::Bool(true));
+        let rhs: Expression = Expression::Value(EvalResult::Bool(false));
+        assert_eq!(
+            Expression::Subtract(Box::new(lhs), Box::new(rhs)).eval(&context),
+            Err(InterpreterError::unsupported_operation(
+                "subtraction of booleans"
+            ))
+        );
+        let lhs: Expression = Expression::Value(EvalResult::Bool(true));
+        let rhs: Expression = Expression::Value(EvalResult::Bool(false));
+        assert_eq!(
+            Expression::Multiply(Box::new(lhs), Box::new(rhs)).eval(&context),
+            Err(InterpreterError::unsupported_operation(
+                "multiplication of booleans"
+            ))
+        );
+        let lhs: Expression = Expression::Value(EvalResult::Bool(true));
+        let rhs: Expression = Expression::Value(EvalResult::Bool(false));
+        assert_eq!(
+            Expression::Divide(Box::new(lhs), Box::new(rhs)).eval(&context),
+            Err(InterpreterError::unsupported_operation(
+                "division of booleans"
+            ))
+        );
+    }
+
+    #[test]
+    fn valid_and() {
+        // Dummy program to satisfy parameter
+        let context: Program = Program::new();
+
+        let lhs: Expression = Expression::Value(EvalResult::Bool(true));
+        let rhs: Expression = Expression::Value(EvalResult::Bool(false));
+
+        assert_eq!(
+            Expression::And(Box::new(lhs), Box::new(rhs))
+                .eval(&context)
+                .unwrap(),
+            EvalResult::Bool(false)
+        );
+
+        let lhs: Expression = Expression::Value(EvalResult::Bool(false));
+        let rhs: Expression = Expression::Value(EvalResult::Bool(false));
+
+        assert_eq!(
+            Expression::And(Box::new(lhs), Box::new(rhs))
+                .eval(&context)
+                .unwrap(),
+            EvalResult::Bool(false)
+        );
+        let lhs: Expression = Expression::Value(EvalResult::Bool(true));
+        let rhs: Expression = Expression::Value(EvalResult::Bool(true));
+
+        assert_eq!(
+            Expression::And(Box::new(lhs), Box::new(rhs))
+                .eval(&context)
+                .unwrap(),
+            EvalResult::Bool(true)
+        );
+    }
+    #[test]
+    fn valid_or() {
+        // Dummy program to satisfy parameter
+        let context: Program = Program::new();
+
+        let lhs: Expression = Expression::Value(EvalResult::Bool(true));
+        let rhs: Expression = Expression::Value(EvalResult::Bool(false));
+
+        assert_eq!(
+            Expression::Or(Box::new(lhs), Box::new(rhs))
+                .eval(&context)
+                .unwrap(),
+            EvalResult::Bool(true)
+        );
+
+        let lhs: Expression = Expression::Value(EvalResult::Bool(false));
+        let rhs: Expression = Expression::Value(EvalResult::Bool(false));
+
+        assert_eq!(
+            Expression::Or(Box::new(lhs), Box::new(rhs))
+                .eval(&context)
+                .unwrap(),
+            EvalResult::Bool(false)
+        );
+        let lhs: Expression = Expression::Value(EvalResult::Bool(true));
+        let rhs: Expression = Expression::Value(EvalResult::Bool(true));
+
+        assert_eq!(
+            Expression::Or(Box::new(lhs), Box::new(rhs))
+                .eval(&context)
+                .unwrap(),
+            EvalResult::Bool(true)
+        );
+    }
+
+    #[test]
+    fn invalid_logic_on_float() {
+        // Dummy program to satisfy parameter
+        let context: Program = Program::new();
+        let lhs: Expression = Expression::Value(EvalResult::Float(1_f32));
+        let rhs: Expression = Expression::Value(EvalResult::Float(2_f32));
+
+        assert_eq!(
+            Expression::And(Box::new(lhs), Box::new(rhs)).eval(&context),
+            Err(InterpreterError::unsupported_operation(
+                "logical operation of non-booleans"
+            ))
+        );
+        let lhs: Expression = Expression::Value(EvalResult::Float(1_f32));
+        let rhs: Expression = Expression::Value(EvalResult::Float(2_f32));
+
+        assert_eq!(
+            Expression::Or(Box::new(lhs), Box::new(rhs)).eval(&context),
+            Err(InterpreterError::unsupported_operation(
+                "logical operation of non-booleans"
+            ))
+        );
+    }
+
+    #[test]
+    fn valid_greater_than_float() {
+        // Dummy program to satisfy parameter
+        let context: Program = Program::new();
+        let lhs: Expression = Expression::Value(EvalResult::Float(1_f32));
+        let rhs: Expression = Expression::Value(EvalResult::Float(2_f32));
+
+        assert_eq!(
+            Expression::GreaterThan(Box::new(lhs), Box::new(rhs))
+                .eval(&context)
+                .unwrap(),
+            EvalResult::Bool(false)
+        );
+
+        let lhs: Expression = Expression::Value(EvalResult::Float(1_f32));
+        let rhs: Expression = Expression::Value(EvalResult::Float(2_f32));
+
+        assert_eq!(
+            Expression::GreaterThan(Box::new(rhs), Box::new(lhs))
+                .eval(&context)
+                .unwrap(),
+            EvalResult::Bool(true)
+        );
+    }
+    #[test]
+    fn valid_greater_than_bool() {
+        // Dummy program to satisfy parameter
+        let context: Program = Program::new();
+        let lhs: Expression = Expression::Value(EvalResult::Bool(true));
+        let rhs: Expression = Expression::Value(EvalResult::Bool(false));
+
+        assert_eq!(
+            Expression::GreaterThan(Box::new(lhs), Box::new(rhs))
+                .eval(&context)
+                .unwrap(),
+            EvalResult::Bool(true)
+        );
+        let lhs: Expression = Expression::Value(EvalResult::Bool(true));
+        let rhs: Expression = Expression::Value(EvalResult::Bool(false));
+
+        assert_eq!(
+            Expression::GreaterThan(Box::new(rhs), Box::new(lhs))
+                .eval(&context)
+                .unwrap(),
+            EvalResult::Bool(false)
+        );
+    }
+    #[test]
+    fn valid_less_than_float() {
+        // Dummy program to satisfy parameter
+        let context: Program = Program::new();
+        let lhs: Expression = Expression::Value(EvalResult::Float(1_f32));
+        let rhs: Expression = Expression::Value(EvalResult::Float(2_f32));
+
+        assert_eq!(
+            Expression::LessThan(Box::new(lhs), Box::new(rhs))
+                .eval(&context)
+                .unwrap(),
+            EvalResult::Bool(true)
+        );
+
+        let lhs: Expression = Expression::Value(EvalResult::Float(1_f32));
+        let rhs: Expression = Expression::Value(EvalResult::Float(2_f32));
+
+        assert_eq!(
+            Expression::LessThan(Box::new(rhs), Box::new(lhs))
+                .eval(&context)
+                .unwrap(),
+            EvalResult::Bool(false)
+        );
+    }
+    #[test]
+    fn valid_less_than_bool() {
+        // Dummy program to satisfy parameter
+        let context: Program = Program::new();
+        let lhs: Expression = Expression::Value(EvalResult::Bool(true));
+        let rhs: Expression = Expression::Value(EvalResult::Bool(false));
+
+        assert_eq!(
+            Expression::LessThan(Box::new(lhs), Box::new(rhs))
+                .eval(&context)
+                .unwrap(),
+            EvalResult::Bool(false)
+        );
+        let lhs: Expression = Expression::Value(EvalResult::Bool(true));
+        let rhs: Expression = Expression::Value(EvalResult::Bool(false));
+
+        assert_eq!(
+            Expression::LessThan(Box::new(rhs), Box::new(lhs))
+                .eval(&context)
+                .unwrap(),
+            EvalResult::Bool(true)
+        );
+    }
+
+    #[test]
+    fn valid_equals_float() {
+        // Dummy program to satisfy parameter
+        let context: Program = Program::new();
+
+        let lhs: Expression = Expression::Value(EvalResult::Float(1_f32));
+        let rhs: Expression = Expression::Value(EvalResult::Float(1_f32));
+
+        assert_eq!(
+            Expression::Equals(Box::new(lhs), Box::new(rhs))
+                .eval(&context)
+                .unwrap(),
+            EvalResult::Bool(true)
+        );
+
+        let lhs: Expression = Expression::Value(EvalResult::Float(1_f32));
+        let rhs: Expression = Expression::Value(EvalResult::Float(2_f32));
+
+        assert_eq!(
+            Expression::Equals(Box::new(lhs), Box::new(rhs))
+                .eval(&context)
+                .unwrap(),
+            EvalResult::Bool(false)
+        );
+    }
+    #[test]
+    fn valid_not_equals_float() {
+        // Dummy program to satisfy parameter
+        let context: Program = Program::new();
+
+        let lhs: Expression = Expression::Value(EvalResult::Float(1_f32));
+        let rhs: Expression = Expression::Value(EvalResult::Float(1_f32));
+
+        assert_eq!(
+            Expression::NotEquals(Box::new(lhs), Box::new(rhs))
+                .eval(&context)
+                .unwrap(),
+            EvalResult::Bool(false)
+        );
+
+        let lhs: Expression = Expression::Value(EvalResult::Float(1_f32));
+        let rhs: Expression = Expression::Value(EvalResult::Float(2_f32));
+
+        assert_eq!(
+            Expression::NotEquals(Box::new(lhs), Box::new(rhs))
+                .eval(&context)
+                .unwrap(),
+            EvalResult::Bool(true)
+        );
+    }
+
+    #[test]
+    fn valid_not_equals_bool() {
+        // Dummy program to satisfy parameter
+        let context: Program = Program::new();
+
+        let lhs: Expression = Expression::Value(EvalResult::Bool(true));
+        let rhs: Expression = Expression::Value(EvalResult::Bool(true));
+
+        assert_eq!(
+            Expression::NotEquals(Box::new(lhs), Box::new(rhs))
+                .eval(&context)
+                .unwrap(),
+            EvalResult::Bool(false)
+        );
+
+        let lhs: Expression = Expression::Value(EvalResult::Bool(true));
+        let rhs: Expression = Expression::Value(EvalResult::Bool(false));
+
+        assert_eq!(
+            Expression::NotEquals(Box::new(lhs), Box::new(rhs))
+                .eval(&context)
+                .unwrap(),
+            EvalResult::Bool(true)
+        );
+    }
+    #[test]
+    fn valid_equals_bool() {
+        // Dummy program to satisfy parameter
+        let context: Program = Program::new();
+
+        let lhs: Expression = Expression::Value(EvalResult::Bool(true));
+        let rhs: Expression = Expression::Value(EvalResult::Bool(true));
+
+        assert_eq!(
+            Expression::Equals(Box::new(lhs), Box::new(rhs))
+                .eval(&context)
+                .unwrap(),
+            EvalResult::Bool(true)
+        );
+
+        let lhs: Expression = Expression::Value(EvalResult::Bool(true));
+        let rhs: Expression = Expression::Value(EvalResult::Bool(false));
+
+        assert_eq!(
+            Expression::Equals(Box::new(lhs), Box::new(rhs))
+                .eval(&context)
+                .unwrap(),
+            EvalResult::Bool(false)
+        );
+    }
+
+    #[test]
+    fn invalid_equals() {
+        // Dummy program to satisfy parameter
+        let context: Program = Program::new();
+
+        let lhs: Expression = Expression::Value(EvalResult::Bool(true));
+        let rhs: Expression = Expression::Value(EvalResult::Float(1_f32));
+
+        assert_eq!(
+            Expression::Equals(Box::new(lhs), Box::new(rhs)).eval(&context),
+            Err(InterpreterError::unsupported_operation(
+                "comparison of different types"
+            ))
+        )
+    }
+
+    #[test]
+    fn invalid_not_equals() {
+        // Dummy program to satisfy parameter
+        let context: Program = Program::new();
+
+        let lhs: Expression = Expression::Value(EvalResult::Bool(true));
+        let rhs: Expression = Expression::Value(EvalResult::Float(1_f32));
+
+        assert_eq!(
+            Expression::NotEquals(Box::new(lhs), Box::new(rhs)).eval(&context),
+            Err(InterpreterError::unsupported_operation(
+                "comparison of different types"
+            ))
+        )
+    }
+
+    #[test]
+    fn integration() {
+        // Dummy program to satisfy parameter
+        let context: Program = Program::new();
+
+        let lhs: Expression = Expression::Divide(
+            Box::new(Expression::Add(
+                Box::new(Expression::Value(EvalResult::Float(2_f32))),
+                Box::new(Expression::Value(EvalResult::Float(2_f32))),
+            )),
+            Box::new(Expression::Value(EvalResult::Float(2_f32))),
+        ); // should evaluate to 2
+        let rhs: Expression = Expression::Multiply(
+            Box::new(Expression::Subtract(
+                Box::new(Expression::Value(EvalResult::Float(5_f32))),
+                Box::new(Expression::Value(EvalResult::Float(2_f32))),
+            )),
+            Box::new(Expression::Add(
+                Box::new(Expression::Value(EvalResult::Float(2_f32))),
+                Box::new(Expression::Value(EvalResult::Float(2_f32))),
+            )),
+        ); // should evaluate to 12
+
+        assert_eq!(lhs.eval(&context).unwrap(), EvalResult::Float(2_f32));
+        assert_eq!(rhs.eval(&context).unwrap(), EvalResult::Float(12_f32));
+        assert_eq!(
+            Expression::LessThan(Box::new(lhs), Box::new(rhs))
+                .eval(&context)
+                .unwrap(),
+            EvalResult::Bool(true)
+        );
     }
 }

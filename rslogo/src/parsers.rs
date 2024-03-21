@@ -5,6 +5,7 @@ use nom::{
     bytes::complete::{tag, take_until},
     character::complete::{multispace0, space1},
     combinator::map,
+    error::Error,
     multi::many0,
     sequence::{preceded, separated_pair},
     Finish, IResult, Parser,
@@ -70,13 +71,11 @@ fn parse_pen_color(input: Span) -> IResult<Span, Token, ErrorTree<Span>> {
         multispace0,
         preceded(tag("\""), nom::character::complete::i32),
     )
-    // Tolerate surrounding whitespace
-    // Add context in case of error
     .context("When attempting to parse as SETPENCOLOR")
     .parse(input)
     {
         Ok((remainder, (_, value))) if RangeInclusive::new(0, 15).contains(&value) => {
-            let err = nom::Err::Error(ErrorTree::Base {
+            let err: nom::Err<ErrorTree<Span>> = nom::Err::Error(ErrorTree::Base {
                 location: remainder,
                 kind: nom_supreme::error::BaseErrorKind::Expected(Expectation::Digit),
             });
@@ -132,7 +131,7 @@ fn parse_one(input: Span) -> IResult<Span, Token, ErrorTree<Span>> {
     // Convert Error to Failure (unrecoverable) to get more backtrace.
     // See: https://stackoverflow.com/questions/74993188/how-to-propagate-nom-fail-context-out-of-many0
     // Note that this may be detrimental to larger parser chains, but it should be fine here: https://github.com/rust-bakery/nom/issues/1527
-    .cut()
+    // .cut() // TODO: investigate why this causes issues with parse()  for some reason
     // Add context to potential error messages
     .context("When trying to determine the parser to use")
     .parse(input)?;
@@ -163,12 +162,12 @@ mod tests {
 
     #[test]
     fn valid_states() {
-        let penup = Span::new("PENUP");
-        let (_, result) = parse_pen_state(penup).unwrap();
+        let penup: Span = Span::new("PENUP");
+        let (_, result): (_, Token) = parse_pen_state(penup).unwrap();
         assert_eq!(result, Token::PenUp);
 
-        let pendown = Span::new("PENDOWN");
-        let (_, result) = parse_pen_state(pendown).unwrap();
+        let pendown: Span = Span::new("PENDOWN");
+        let (_, result): (_, Token) = parse_pen_state(pendown).unwrap();
         assert_eq!(result, Token::PenDown);
     }
 
@@ -231,7 +230,7 @@ mod tests {
 
     #[test]
     fn valid_parse() {
-        let input: Span = Span::new("PENUP\nBACK \"16\nRIGHT \"10\nPENDOWN\n");
+        let input: Span = Span::new("PENUP\nBACK \"16\nRIGHT \"10\nPENDOWN");
         let result: Vec<Token> = match parse(input) {
             Ok(result) => result,
             Err(e) => panic!("This shouldn't fail! Error: {:?}", e),
