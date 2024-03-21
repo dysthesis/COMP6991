@@ -1,5 +1,6 @@
 mod errors;
 mod parsers;
+mod tokens;
 
 use clap::Parser;
 use unsvg::Image;

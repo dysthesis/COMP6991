@@ -64,3 +64,30 @@ pub fn format_parse_error<'a>(input: &'a str, e: ErrorTree<parsers::Span<'a>>) -
         }
     }
 }
+
+// TOKEN ERRORS
+#[derive(thiserror::Error, miette::Diagnostic, Debug)]
+pub enum InterpreterError {
+    #[error("Variable not found: {0}")]
+    UndefinedVariable(String),
+
+    #[error("Division by zero")]
+    DivisionByZero,
+
+    #[error("Unsupported operation: {0}")]
+    UnsupportedOperation(String),
+}
+
+impl InterpreterError {
+    pub fn undefined_var(name: &str) -> Self {
+        InterpreterError::UndefinedVariable(name.into())
+    }
+
+    pub fn division_by_zero() -> Self {
+        InterpreterError::DivisionByZero
+    }
+
+    pub fn unsupported_operation(name: &str) -> Self {
+        InterpreterError::UnsupportedOperation(name.into())
+    }
+}
