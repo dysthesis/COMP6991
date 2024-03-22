@@ -1,6 +1,8 @@
+use nom_locate::LocatedSpan;
 use nom_supreme::error::{BaseErrorKind, ErrorTree, GenericErrorTree, StackContext};
 
-use crate::parsers;
+/// Convenient type alias
+pub type Span<'a> = LocatedSpan<&'a str>;
 
 #[derive(thiserror::Error, Debug, miette::Diagnostic)]
 #[error("Parse error")]
@@ -12,6 +14,7 @@ pub struct ParseError<'b> {
     span: miette::SourceSpan,
 
     kind: BaseErrorKind<&'b str, Box<dyn std::error::Error + Send + Sync + 'static>>,
+
     #[related]
     others: Vec<ParseErrorContext<'b>>,
 }
@@ -26,7 +29,7 @@ pub struct ParseErrorContext<'b> {
     context: StackContext<&'b str>,
 }
 
-pub fn format_parse_error<'a>(input: &'a str, e: ErrorTree<parsers::Span<'a>>) -> ParseError<'a> {
+pub fn format_parse_error<'a>(input: &'a str, e: ErrorTree<Span<'a>>) -> ParseError<'a> {
     match e {
         GenericErrorTree::Base { location, kind } => {
             let offset = location.location_offset().into();
@@ -90,4 +93,14 @@ impl InterpreterError {
     pub fn unsupported_operation(name: &str) -> Self {
         InterpreterError::UnsupportedOperation(name.into())
     }
+}
+
+#[derive(thiserror::Error, miette::Diagnostic, Debug, PartialEq)]
+pub enum TurtleError {
+    #[error("Colour out of range: {0}")]
+    ColourOutOfRange(f32), // TODO: Make miette provide a help message informing the correct range.
+    #[error("Angle out of range: {0}")]
+    AngleOutOfRange(f32), // TODO: Make miette provide a help message informing the correct range.
+    #[error("Invalid coordinates: ({0}, {1})")]
+    InvalidCoordinates(f32, f32),
 }

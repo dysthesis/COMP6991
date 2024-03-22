@@ -1,248 +1,481 @@
-use std::ops::RangeInclusive;
-
 use nom::{
     branch::alt,
-    bytes::complete::{tag, take_until},
-    character::complete::{multispace0, space1},
-    combinator::map,
-    error::Error,
-    multi::many0,
-    sequence::{preceded, separated_pair},
-    Finish, IResult, Parser,
+    bytes::complete::take_until,
+    character::complete::{alphanumeric1, multispace1},
+    number::complete::float,
+    sequence::{delimited, preceded, separated_pair, tuple},
+    IResult, Parser,
+};
+use nom_supreme::{error::ErrorTree, tag::complete::tag, ParserExt};
+
+use crate::{
+    errors::Span,
+    tokens::{
+        EvalResult::{self},
+        Expression,
+    },
 };
 
-#[derive(PartialEq, Debug)]
-pub enum Token {
-    Comment,
-    PenUp,
-    PenDown,
-    Forward(i32),
-    Back(i32),
-    Left(i32),
-    Right(i32),
-    SetPenColor(i32),
-}
-
-pub type Span<'a> = LocatedSpan<&'a str>;
-
-use nom_locate::LocatedSpan;
-use nom_supreme::{
-    error::{ErrorTree, Expectation},
-    tag::complete::tag as tag_supreme,
-    ParserExt,
-};
-
-use crate::errors;
-
-fn parse_comment(input: Span) -> IResult<Span, Token, ErrorTree<Span>> {
-    map(preceded(tag("//"), take_until("\n")), |_| Token::Comment)
-        .context("When attempting to parse a comment")
-        .parse(input)
-}
-
-/// This function is responsible for parsing any commands related to
-/// modifying the pen's state, including `PENUP` and `PENDOWN`. It returns
-/// an instance of `Ok((&str, Token::PenUp))` or `Ok((&str, Token::PenDown))`
-/// upon successful parsing, or `Error<&str>` otherwise.
-///
-/// Example:
-/// ```
-/// assert_eq!(parse_pen_state("PENUP"), Ok(("", Token::PenUp)));
-/// assert_eq!(parse_pen_state("PENDOWN"), Ok(("", Token::PenDown)));
-/// ```
-fn parse_pen_state(input: Span) -> IResult<Span, Token, ErrorTree<Span>> {
-    /*
-     * Delimited is used to get rid of whatever whitespace comes before
-     * or after the command.
-     */
-
-    alt((
-        map(tag_supreme("PENUP"), |_| Token::PenUp).context("When attempting to parse as PENUP"),
-        map(tag_supreme("PENDOWN"), |_| Token::PenDown)
-            .context("When attempting to parse as PENDOWN"),
-    ))
-    .context("When attempting to parse pen state commands")
-    .parse(input)
-}
-
-fn parse_pen_color(input: Span) -> IResult<Span, Token, ErrorTree<Span>> {
-    match separated_pair(
-        tag_supreme("SETPENCOLOR"),
-        multispace0,
-        preceded(tag("\""), nom::character::complete::i32),
-    )
-    .context("When attempting to parse as SETPENCOLOR")
-    .parse(input)
-    {
-        Ok((remainder, (_, value))) if RangeInclusive::new(0, 15).contains(&value) => {
-            let err: nom::Err<ErrorTree<Span>> = nom::Err::Error(ErrorTree::Base {
-                location: remainder,
-                kind: nom_supreme::error::BaseErrorKind::Expected(Expectation::Digit),
-            });
-            Result::Err(err)
+/// Macro to reduce boilerplate for arithmetic parsing
+macro_rules! parse_operation_expression {
+    ($fn_name:ident, $op:expr, $constructor:path) => {
+        fn $fn_name(input: Span) -> IResult<Span, Expression, ErrorTree<Span>> {
+            preceded(
+                tuple((tag($op), multispace1)),
+                separated_pair(parse_expression, multispace1, parse_expression),
+            )
+            .map(|(lhs, rhs)| $constructor(Box::new(lhs), Box::new(rhs)))
+            .context(concat!("when parsing ", stringify!($op), " expression"))
+            .parse(input)
         }
-        Ok((remainder, (_, value))) => Ok((remainder, Token::SetPenColor(value))),
-        Err(e) => Err(e),
-    }
-}
-
-fn parse_directions(input: Span) -> IResult<Span, Token, ErrorTree<Span>> {
-    let (input, (direction, distance)) = separated_pair(
-        // Recognise any of these strings as a direction
-        alt((
-            tag("FORWARD").context("When attempting to parse as FORWARD"),
-            tag("BACK").context("When attempting to parse as BACK"),
-            tag("LEFT").context("When attempting to parse as LEFT"),
-            tag("RIGHT").context("When attempting to parse as RIGHT"),
-        )),
-        // The direction and distance must be separated with a space
-        space1,
-        // Ensure that there is at least one digit for the distance
-        nom::character::complete::i32.preceded_by(tag("\"")),
-    )
-    // Add context in case of errors
-    .context("When parsing turtle direction commands")
-    .parse(input)?;
-
-    // Match the resulting string with the corresponding token.
-    let result = match direction.into_fragment() {
-        "FORWARD" => Token::Forward(distance),
-        "BACK" => Token::Back(distance),
-        "LEFT" => Token::Left(distance),
-        "RIGHT" => Token::Right(distance),
-
-        // TODO:  THIS SHOULD RETURN AN ERROR OBJECT!
-        _ => unreachable!(),
     };
-
-    Ok((input, result))
 }
 
-fn parse_one(input: Span) -> IResult<Span, Token, ErrorTree<Span>> {
-    // Put all of the parsers inside here.
-    let (remainder, result) = alt((
-        parse_directions,
-        parse_pen_state,
-        parse_comment,
-        parse_pen_color,
+/// Macro to reduce boilerplate for single-keyword queries
+macro_rules! parse_query_expression {
+    ($fn_name:ident, $op:expr, $context:expr, $constructor:path) => {
+        fn $fn_name(input: Span) -> IResult<Span, Expression, ErrorTree<Span>> {
+            tag($op)
+                .map(|_| $constructor)
+                .context($context)
+                .parse(input)
+        }
+    };
+}
+
+fn parse_value_expression(input: Span) -> IResult<Span, Expression, ErrorTree<Span>> {
+    alt((
+        float
+            .preceded_by(tag("\""))
+            .map(|res| Expression::Value(EvalResult::Float(res)))
+            .context("parsing literal value as float"),
+        tag("TRUE")
+            .preceded_by(tag("\""))
+            .map(|_| Expression::Value(EvalResult::Bool(true)))
+            .context("parsing literal value as boolean 'true'"),
+        tag("FALSE")
+            .preceded_by(tag("\""))
+            .map(|_| Expression::Value(EvalResult::Bool(false)))
+            .context("parsing literal value as boolean 'true'"),
     ))
-    // Ignore surrounding whitespace, if any.
-    .delimited_by(multispace0)
-    // Convert Error to Failure (unrecoverable) to get more backtrace.
-    // See: https://stackoverflow.com/questions/74993188/how-to-propagate-nom-fail-context-out-of-many0
-    // Note that this may be detrimental to larger parser chains, but it should be fine here: https://github.com/rust-bakery/nom/issues/1527
-    // .cut() // TODO: investigate why this causes issues with parse()  for some reason
-    // Add context to potential error messages
-    .context("When trying to determine the parser to use")
-    .parse(input)?;
+    .context("parsing literal value")
+    .parse(input)
 
-    Ok((remainder, result))
+    // preceded(tag("\""), float)
+    //     // We want to return a token instead of the actual float
+    //     .map(|res| Expression::Value(EvalResult::Float(res)))
+    //     // Additional context for error messages
+    //     .context("parsing literal value")
+    //     .parse(input)
 }
 
-pub fn parse(input: Span) -> Result<Vec<Token>, errors::ParseError> {
-    let res = many0(parse_one)
-        // Fail if there are any unparsed text
-        .all_consuming()
-        // Add context to potential error messages
-        .context("When trying to parse the file")
+fn parse_get_variable_expression(input: Span) -> IResult<Span, Expression, ErrorTree<Span>> {
+    delimited(tag(":"), alphanumeric1, multispace1)
+        // We want to return a token instead of the actual float
+        .map(|res: Span| -> Expression { Expression::GetVariable(res.into_fragment().into()) })
+        // Additional context for error messages
+        .context("parsing variable")
         .parse(input)
-        // Convert errors formats to more standard formats (rather than nom's)
-        .finish();
+}
 
-    match res {
-        // all_consuming should ensure there's no string left, so we can discard the first span
-        Ok((_, res)) => Ok(res),
-        Err(e) => Err(errors::format_parse_error(input.into_fragment(), e)),
-    }
+parse_query_expression!(
+    parse_xcor_expression,
+    "XCOR",
+    "parsing x-coordinate query",
+    Expression::XCor
+);
+parse_query_expression!(
+    parse_ycor_expression,
+    "YCOR",
+    "parsing y-coordinate query",
+    Expression::YCor
+);
+parse_query_expression!(
+    parse_heading_expression,
+    "HEADING",
+    "parsing heading query",
+    Expression::Heading
+);
+parse_query_expression!(
+    parse_colour_expression,
+    "COLOR",
+    "parsing colour query",
+    Expression::Colour
+);
+
+fn parse_comment_expression(input: Span) -> IResult<Span, Expression, ErrorTree<Span>> {
+    preceded(tag("//"), take_until("\n"))
+        .map(|_| Expression::Comment)
+        .context("parsing comment")
+        .parse(input)
+}
+
+parse_operation_expression!(parse_addition_expression, "+", Expression::Add);
+parse_operation_expression!(parse_subtraction_expression, "-", Expression::Subtract);
+parse_operation_expression!(parse_multiplication_expression, "*", Expression::Multiply);
+parse_operation_expression!(parse_division_expression, "/", Expression::Divide);
+parse_operation_expression!(parse_equality_expression, "EQ", Expression::Equals);
+parse_operation_expression!(parse_inequality_expression, "NE", Expression::NotEquals);
+parse_operation_expression!(parse_greater_than_expression, "GT", Expression::GreaterThan);
+parse_operation_expression!(parse_less_than_expression, "LT", Expression::LessThan);
+parse_operation_expression!(parse_and_expression, "AND", Expression::And);
+parse_operation_expression!(parse_or_expression, "OR", Expression::Or);
+
+fn parse_expression(input: Span) -> IResult<Span, Expression, ErrorTree<Span>> {
+    alt((
+        parse_value_expression,
+        parse_get_variable_expression,
+        parse_addition_expression,
+        parse_subtraction_expression,
+        parse_multiplication_expression,
+        parse_division_expression,
+        parse_equality_expression,
+        parse_inequality_expression,
+        parse_greater_than_expression,
+        parse_less_than_expression,
+        parse_and_expression,
+        parse_or_expression,
+        parse_xcor_expression,
+        parse_ycor_expression,
+        parse_colour_expression,
+        parse_heading_expression,
+    ))
+    .context("parsing expression")
+    .parse(input)
 }
 
 #[cfg(test)]
 mod tests {
+    use crate::{errors::format_parse_error, tokens::Program};
+
     use super::*;
+    use proptest::prelude::*;
 
-    #[test]
-    fn valid_states() {
-        let penup: Span = Span::new("PENUP");
-        let (_, result): (_, Token) = parse_pen_state(penup).unwrap();
-        assert_eq!(result, Token::PenUp);
-
-        let pendown: Span = Span::new("PENDOWN");
-        let (_, result): (_, Token) = parse_pen_state(pendown).unwrap();
-        assert_eq!(result, Token::PenDown);
-    }
-
-    #[test]
-    fn invalid_states() {
-        let invalid: Span = Span::new("PENSIDEWAYS");
-        assert!(parse_pen_state(invalid).is_err());
-    }
-
-    #[test]
-    fn valid_directions() {
-        let forward: Span = Span::new("FORWARD \"10");
-        let (_, result): (_, Token) = parse_directions(forward).unwrap();
-        assert_eq!(result, Token::Forward(10));
-
-        let back: Span = Span::new("BACK \"10");
-        let (_, result): (_, Token) = parse_directions(back).unwrap();
-        assert_eq!(result, Token::Back(10));
-
-        let left: Span = Span::new("LEFT \"10");
-        let (_, result): (_, Token) = parse_directions(left).unwrap();
-        assert_eq!(result, Token::Left(10));
-
-        let right: Span = Span::new("RIGHT \"10");
-        let (_, result): (_, Token) = parse_directions(right).unwrap();
-        assert_eq!(result, Token::Right(10));
-    }
-
-    #[test]
-    fn invalid_directions() {
-        let invalid: Span = Span::new("NOWHERE \"10");
-        assert!(parse_directions(invalid).is_err());
-    }
-
-    #[test]
-    fn invalid_directions_no_distance() {
-        let invalid: Span = Span::new("FORWARD");
-        assert!(parse_directions(invalid).is_err());
-    }
-
-    #[test]
-    fn invalid_directions_no_whitespace() {
-        let invalid: Span = Span::new("BACK\"4");
-        assert!(parse_directions(invalid).is_err());
-    }
-
-    #[test]
-    fn valid_parse_one() {
-        let input: Span = Span::new("PENUP\nFORWARD \"4\nPENDOWN");
-        let (remainder, penup): (Span, Token) = parse_one(input).unwrap();
-        assert_eq!(penup, Token::PenUp);
-
-        let (remainder, forward): (Span, Token) = parse_one(remainder).unwrap();
-        assert_eq!(forward, Token::Forward(4));
-
-        let (remainder, pendown): (Span, Token) = parse_one(remainder).unwrap();
-        assert_eq!(pendown, Token::PenDown);
-        assert_eq!(remainder.into_fragment(), "");
-    }
-
-    #[test]
-    fn valid_parse() {
-        let input: Span = Span::new("PENUP\nBACK \"16\nRIGHT \"10\nPENDOWN");
-        let result: Vec<Token> = match parse(input) {
-            Ok(result) => result,
-            Err(e) => panic!("This shouldn't fail! Error: {:?}", e),
+    macro_rules! float_operations_strategy {
+        ($fn:ident, $op:expr) => {
+            fn $fn() -> impl Strategy<Value = (String, f32, f32)> {
+                (any::<f32>(), any::<f32>())
+                    .prop_map(move |(a, b)| (format!("{} \"{} \"{}", $op, a, b), a, b))
+            }
         };
-        assert_eq!(
-            result,
-            vec![
-                Token::PenUp,
-                Token::Back(16),
-                Token::Right(10),
-                Token::PenDown
-            ]
-        );
+    }
+
+    macro_rules! bool_operations_strategy {
+        ($fn:ident, $op:expr) => {
+            fn $fn() -> impl Strategy<Value = (String, bool, bool)> {
+                (any::<bool>(), any::<bool>()).prop_map(move |(a, b)| {
+                    let a_str = if a { "TRUE" } else { "FALSE" };
+                    let b_str = if b { "TRUE" } else { "FALSE" };
+                    (format!("{} \"{} \"{}", $op, a_str, b_str), a, b)
+                })
+            }
+        };
+    }
+    // macro_rules! bool_operations_strategy {
+    //     ($fn:ident, $op:expr) => {
+    //         fn $fn() -> impl Strategy<Value = (String, bool, bool)> {
+    //             (any::<bool>(), any::<bool>())
+    //                 .prop_map(move |(a, b)| (format!("{} \"{} \"{}", $op, a, b), a, b))
+    //         }
+    //     };
+    // }
+    float_operations_strategy!(addition_test, "+");
+    float_operations_strategy!(subtraction_test, "-");
+    float_operations_strategy!(multiplication_test, "*");
+    float_operations_strategy!(division_test, "/");
+    float_operations_strategy!(float_equals_test, "EQ");
+    float_operations_strategy!(float_notequals_test, "NE");
+    float_operations_strategy!(float_gt_test, "GT");
+    float_operations_strategy!(float_lt_test, "LT");
+    bool_operations_strategy!(bool_equals_test, "EQ");
+    bool_operations_strategy!(bool_notequals_test, "NE");
+    bool_operations_strategy!(bool_gt_test, "GT");
+    bool_operations_strategy!(bool_lt_test, "LT");
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(100000))]
+
+        #[test]
+        fn test_parse_addition_expression((input, a, b) in addition_test()) {
+            let span = Span::new(&input);
+            match parse_expression(span) {
+                Ok((remaining, Expression::Add(lhs, rhs))) => {
+                    // Ensure the expression was fully consumed
+                    assert!(remaining.fragment().is_empty(), "Input was not fully consumed");
+
+                    // Example assertions (you'll need to replace these with actual logic to extract values from `lhs` and `rhs`)
+                    // Dummy program for evaluation
+                    let context = Program::new();
+
+                    let lhs_val = lhs.eval(&context).expect("A simple Expression::Value should not fail to evaluate");
+                    assert_eq!(lhs_val, EvalResult::Float(a), "LHS value does not match expected");
+
+                    let rhs_val = rhs.eval(&context).expect("A simple Expression::Value should not fail to evaluate");
+                    assert_eq!(rhs_val, EvalResult::Float(b), "RHS value does not match expected");
+                },
+
+                Err(e) => panic!("Failed to parse addition expression or incorrect expression type: {:?}", e),
+                _ => panic!("This really shouldn't happen."),
+            }
+        }
+
+        #[test]
+        fn test_parse_subtraction_expression((input, a, b) in subtraction_test()) {
+            let span = Span::new(&input);
+            match parse_expression(span) {
+                Ok((remaining, Expression::Subtract(lhs, rhs))) => {
+                    // Ensure the expression was fully consumed
+                    assert!(remaining.fragment().is_empty(), "Input was not fully consumed");
+
+                    // Example assertions (you'll need to replace these with actual logic to extract values from `lhs` and `rhs`)
+                    // Dummy program for evaluation
+                    let context = Program::new();
+
+                    let lhs_val = lhs.eval(&context).expect("A simple Expression::Value should not fail to evaluate");
+                    assert_eq!(lhs_val, EvalResult::Float(a), "LHS value does not match expected");
+
+                    let rhs_val = rhs.eval(&context).expect("A simple Expression::Value should not fail to evaluate");
+                    assert_eq!(rhs_val, EvalResult::Float(b), "RHS value does not match expected");
+                },
+
+                Err(e) => panic!("Failed to parse addition expression or incorrect expression type: {:?}", e),
+                _ => panic!("This really shouldn't happen."),
+            }
+        }
+
+        #[test]
+        fn test_parse_multiplication_expression((input, a, b) in multiplication_test()) {
+            let span = Span::new(&input);
+            match parse_expression(span) {
+                Ok((remaining, Expression::Multiply(lhs, rhs))) => {
+                    // Ensure the expression was fully consumed
+                    assert!(remaining.fragment().is_empty(), "Input was not fully consumed");
+
+                    // Example assertions (you'll need to replace these with actual logic to extract values from `lhs` and `rhs`)
+                    // Dummy program for evaluation
+                    let context = Program::new();
+
+                    let lhs_val = lhs.eval(&context).expect("A simple Expression::Value should not fail to evaluate");
+                    assert_eq!(lhs_val, EvalResult::Float(a), "LHS value does not match expected");
+
+                    let rhs_val = rhs.eval(&context).expect("A simple Expression::Value should not fail to evaluate");
+                    assert_eq!(rhs_val, EvalResult::Float(b), "RHS value does not match expected");
+                },
+
+                Err(e) => panic!("Failed to parse multiplication expression or incorrect expression type: {:?}", e),
+                _ => panic!("This really shouldn't happen."),
+            }
+        }
+
+        #[test]
+        fn test_parse_division_expression((input, a, b) in division_test()) {
+            let span = Span::new(&input);
+            match parse_expression(span) {
+                Ok((remaining, Expression::Divide(lhs, rhs))) => {
+                    // Ensure the expression was fully consumed
+                    assert!(remaining.fragment().is_empty(), "Input was not fully consumed");
+
+                    // Example assertions (you'll need to replace these with actual logic to extract values from `lhs` and `rhs`)
+                    // Dummy program for evaluation
+                    let context = Program::new();
+
+                    let lhs_val = lhs.eval(&context).expect("A simple Expression::Value should not fail to evaluate");
+                    assert_eq!(lhs_val, EvalResult::Float(a), "LHS value does not match expected");
+
+                    let rhs_val = rhs.eval(&context).expect("A simple Expression::Value should not fail to evaluate");
+                    assert_eq!(rhs_val, EvalResult::Float(b), "RHS value does not match expected");
+                },
+
+                Err(e) => panic!("Failed to parse addition division or incorrect expression type: {:?}", e),
+                _ => panic!("This really shouldn't happen."),
+            }
+        }
+
+        #[test]
+        fn test_parse_float_equals_expression((input, a, b) in float_equals_test()) {
+            let span = Span::new(&input);
+            match parse_expression(span) {
+                Ok((remaining, Expression::Equals(lhs, rhs))) => {
+                    // Ensure the expression was fully consumed
+                    assert!(remaining.fragment().is_empty(), "Input was not fully consumed");
+
+                    // Example assertions (you'll need to replace these with actual logic to extract values from `lhs` and `rhs`)
+                    // Dummy program for evaluation
+                    let context = Program::new();
+
+                    let lhs_val = lhs.eval(&context).expect("A simple Expression::Value should not fail to evaluate");
+                    assert_eq!(lhs_val, EvalResult::Float(a), "LHS value does not match expected");
+
+                    let rhs_val = rhs.eval(&context).expect("A simple Expression::Value should not fail to evaluate");
+                    assert_eq!(rhs_val, EvalResult::Float(b), "RHS value does not match expected");
+                },
+
+                Err(e) => panic!("Failed to parse equals expression or incorrect expression type: {:?}", e),
+                _ => panic!("This really shouldn't happen."),
+            }
+        }
+        #[test]
+        fn test_parse_float_notequals_expression((input, a, b) in float_notequals_test()) {
+            let span = Span::new(&input);
+            match parse_expression(span) {
+                Ok((remaining, Expression::NotEquals(lhs, rhs))) => {
+                    // Ensure the expression was fully consumed
+                    assert!(remaining.fragment().is_empty(), "Input was not fully consumed");
+
+                    // Example assertions (you'll need to replace these with actual logic to extract values from `lhs` and `rhs`)
+                    // Dummy program for evaluation
+                    let context = Program::new();
+
+                    let lhs_val = lhs.eval(&context).expect("A simple Expression::Value should not fail to evaluate");
+                    assert_eq!(lhs_val, EvalResult::Float(a), "LHS value does not match expected");
+
+                    let rhs_val = rhs.eval(&context).expect("A simple Expression::Value should not fail to evaluate");
+                    assert_eq!(rhs_val, EvalResult::Float(b), "RHS value does not match expected");
+                },
+
+                Err(e) => panic!("Failed to parse not equals expression or incorrect expression type: {:?}", e),
+                _ => panic!("This really shouldn't happen."),
+            }
+        }
+        #[test]
+        fn test_parse_float_greaterthan_expression((input, a, b) in float_gt_test()) {
+            let span = Span::new(&input);
+            match parse_expression(span) {
+                Ok((remaining, Expression::GreaterThan(lhs, rhs))) => {
+                    // Ensure the expression was fully consumed
+                    assert!(remaining.fragment().is_empty(), "Input was not fully consumed");
+
+                    // Example assertions (you'll need to replace these with actual logic to extract values from `lhs` and `rhs`)
+                    // Dummy program for evaluation
+                    let context = Program::new();
+
+                    let lhs_val = lhs.eval(&context).expect("A simple Expression::Value should not fail to evaluate");
+                    assert_eq!(lhs_val, EvalResult::Float(a), "LHS value does not match expected");
+
+                    let rhs_val = rhs.eval(&context).expect("A simple Expression::Value should not fail to evaluate");
+                    assert_eq!(rhs_val, EvalResult::Float(b), "RHS value does not match expected");
+                },
+
+                Err(e) => panic!("Failed to parse graeter than expression or incorrect expression type: {:?}", e),
+                _ => panic!("This really shouldn't happen."),
+            }
+        }
+
+        #[test]
+        fn test_parse_float_lessthan_expression((input, a, b) in float_lt_test()) {
+            let span = Span::new(&input);
+            match parse_expression(span) {
+                Ok((remaining, Expression::LessThan(lhs, rhs))) => {
+                    // Ensure the expression was fully consumed
+                    assert!(remaining.fragment().is_empty(), "Input was not fully consumed");
+
+                    // Example assertions (you'll need to replace these with actual logic to extract values from `lhs` and `rhs`)
+                    // Dummy program for evaluation
+                    let context = Program::new();
+
+                    let lhs_val = lhs.eval(&context).expect("A simple Expression::Value should not fail to evaluate");
+                    assert_eq!(lhs_val, EvalResult::Float(a), "LHS value does not match expected");
+
+                    let rhs_val = rhs.eval(&context).expect("A simple Expression::Value should not fail to evaluate");
+                    assert_eq!(rhs_val, EvalResult::Float(b), "RHS value does not match expected");
+                },
+
+                Err(e) => panic!("Failed to parse less than expression or incorrect expression type: {:?}", e),
+                _ => panic!("This really shouldn't happen."),
+            }
+        }
+        #[test]
+        fn test_parse_bool_equals_expression((input, a, b) in bool_equals_test()) {
+            let span = Span::new(&input);
+            match parse_expression(span) {
+                Ok((remaining, Expression::Equals(lhs, rhs))) => {
+                    // Ensure the expression was fully consumed
+                    assert!(remaining.fragment().is_empty(), "Input was not fully consumed");
+
+                    // Example assertions (you'll need to replace these with actual logic to extract values from `lhs` and `rhs`)
+                    // Dummy program for evaluation
+                    let context = Program::new();
+
+                    let lhs_val = lhs.eval(&context).expect("A simple Expression::Value should not fail to evaluate");
+                    assert_eq!(lhs_val, EvalResult::Bool(a), "LHS value does not match expected");
+
+                    let rhs_val = rhs.eval(&context).expect("A simple Expression::Value should not fail to evaluate");
+                    assert_eq!(rhs_val, EvalResult::Bool(b), "RHS value does not match expected");
+                },
+
+                Err(e) => panic!("Failed to parse equals expression or incorrect expression type: {:?}", e),
+                _ => panic!("This really shouldn't happen."),
+            }
+        }
+        #[test]
+        fn test_parse_bool_notequals_expression((input, a, b) in bool_notequals_test()) {
+            let span = Span::new(&input);
+            match parse_expression(span) {
+                Ok((remaining, Expression::NotEquals(lhs, rhs))) => {
+                    // Ensure the expression was fully consumed
+                    assert!(remaining.fragment().is_empty(), "Input was not fully consumed");
+
+                    // Example assertions (you'll need to replace these with actual logic to extract values from `lhs` and `rhs`)
+                    // Dummy program for evaluation
+                    let context = Program::new();
+
+                    let lhs_val = lhs.eval(&context).expect("A simple Expression::Value should not fail to evaluate");
+                    assert_eq!(lhs_val, EvalResult::Bool(a), "LHS value does not match expected");
+
+                    let rhs_val = rhs.eval(&context).expect("A simple Expression::Value should not fail to evaluate");
+                    assert_eq!(rhs_val, EvalResult::Bool(b), "RHS value does not match expected");
+                },
+
+                Err(e) => panic!("Failed to parse not equals expression or incorrect expression type: {:?}", e),
+                _ => panic!("This really shouldn't happen."),
+            }
+        }
+        #[test]
+        fn test_parse_bool_greaterthan_expression((input, a, b) in bool_gt_test()) {
+            let span = Span::new(&input);
+            match parse_expression(span) {
+                Ok((remaining, Expression::GreaterThan(lhs, rhs))) => {
+                    // Ensure the expression was fully consumed
+                    assert!(remaining.fragment().is_empty(), "Input was not fully consumed");
+
+                    // Example assertions (you'll need to replace these with actual logic to extract values from `lhs` and `rhs`)
+                    // Dummy program for evaluation
+                    let context = Program::new();
+
+                    let lhs_val = lhs.eval(&context).expect("A simple Expression::Value should not fail to evaluate");
+                    assert_eq!(lhs_val, EvalResult::Bool(a), "LHS value does not match expected");
+
+                    let rhs_val = rhs.eval(&context).expect("A simple Expression::Value should not fail to evaluate");
+                    assert_eq!(rhs_val, EvalResult::Bool(b), "RHS value does not match expected");
+                },
+
+                Err(e) => panic!("Failed to parse graeter than expression or incorrect expression type: {:?}", e),
+                _ => panic!("This really shouldn't happen."),
+            }
+        }
+
+        #[test]
+        fn test_parse_bool_lessthan_expression((input, a, b) in bool_lt_test()) {
+            let span = Span::new(&input);
+            match parse_expression(span) {
+                Ok((remaining, Expression::LessThan(lhs, rhs))) => {
+                    // Ensure the expression was fully consumed
+                    assert!(remaining.fragment().is_empty(), "Input was not fully consumed");
+
+                    // Example assertions (you'll need to replace these with actual logic to extract values from `lhs` and `rhs`)
+                    // Dummy program for evaluation
+                    let context = Program::new();
+
+                    let lhs_val = lhs.eval(&context).expect("A simple Expression::Value should not fail to evaluate");
+                    assert_eq!(lhs_val, EvalResult::Bool(a), "LHS value does not match expected");
+
+                    let rhs_val = rhs.eval(&context).expect("A simple Expression::Value should not fail to evaluate");
+                    assert_eq!(rhs_val, EvalResult::Bool(b), "RHS value does not match expected");
+                },
+
+                Err(e) => panic!("Failed to parse less than expression or incorrect expression type: {:?}", e),
+                _ => panic!("This really shouldn't happen."),
+            }
+        }
     }
 }

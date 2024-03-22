@@ -1,5 +1,7 @@
 use crate::errors::InterpreterError;
+use crate::turtle::Turtle;
 use std::collections::HashMap;
+use std::error::Error;
 use std::ops::{Add, Div, Mul, Sub};
 
 /// Macro to reduce boilerplate for arithmetic expressions
@@ -68,6 +70,9 @@ pub(crate) enum EvalResult {
 /// ```
 #[derive(Debug, PartialEq)]
 pub(crate) enum Expression {
+    /// A comment, preceded by two slashes ('//')
+    Comment,
+
     /// The most fundamental expression. This would simply evaluate to itself.
     Value(EvalResult),
 
@@ -107,12 +112,25 @@ pub(crate) enum Expression {
 
     /// Returns true if at least one of the expressions evaluates to true.
     Or(Box<Expression>, Box<Expression>),
+
+    /// Returns the turtle's x-coordinates
+    XCor,
+
+    /// Returns the turtle's y-coordinates
+    YCor,
+
+    /// Returns the turtle's heading
+    Heading,
+
+    /// Returns the pen colour
+    Colour,
 }
 
 impl Expression {
     /// Evaluates this expression. When successful, returns an instance of EvalResult (either a boolean or f32).
-    fn eval(&self, context: &Program) -> Result<EvalResult, InterpreterError> {
+    pub fn eval(&self, context: &Program) -> Result<EvalResult, InterpreterError> {
         match self {
+            Expression::Comment => todo!(),
             Expression::Value(value) => Ok(*value),
             Expression::GetVariable(key) => {
                 let result = context.variables.get(key);
@@ -148,6 +166,10 @@ impl Expression {
             Expression::LessThan(lhs, rhs) => comparison!(lt, lhs, rhs, context),
             Expression::And(lhs, rhs) => logical_operation!(&&, lhs, rhs, context),
             Expression::Or(lhs, rhs) => logical_operation!(||, lhs, rhs, context),
+            Expression::XCor => todo!(),
+            Expression::YCor => todo!(),
+            Expression::Heading => todo!(),
+            Expression::Colour => todo!(),
         }
     }
 }
@@ -198,15 +220,29 @@ pub(crate) enum Command {
 
     /// Command to repeatedly execute a set of command as long as an expression evaluates to true
     While(Expression, Vec<Command>),
+
+    /// A set of commands (`Vec<Command>`) with its own parameters (`HashMap<String, Expression>`).
+    /// The variables are global. The hashmap will be merged with the global variables hashmap
+    Procedure(HashMap<String, Expression>, Vec<Command>),
 }
 
 impl Command {
     /// Run the command token
-    fn execute(&self, context: &mut Program) {
+    fn execute(&self, context: &mut Program) -> Result<(), Box<dyn Error>> {
         match self {
             Command::PenUp => todo!(),
             Command::PenDown => todo!(),
-            Command::Forward(distance) => todo!(),
+            Command::Forward(distance) => {
+                let value: EvalResult = distance.eval(context)?;
+                match value {
+                    EvalResult::Bool(_) => todo!(),
+                    EvalResult::Float(forward_distance) => {
+                        let _ = context.turtle.move_turtle(None, Some(forward_distance));
+                        Ok(())
+                    }
+                }
+            }
+            Command::Procedure(parameters, commands) => todo!(),
             Command::Back(distance) => todo!(),
             Command::Left(distance) => todo!(),
             Command::Right(distance) => todo!(),
@@ -224,35 +260,41 @@ impl Command {
 }
 
 /// The parsed logo program.
-struct Program {
+pub struct Program {
     /// List of commands contained in the program. This will be iterated through and executed.
     commands: Vec<Command>,
 
     /// List of variables defined in the program.
     variables: HashMap<String, EvalResult>,
+
+    /// The turtle itself
+    turtle: Turtle,
 }
 
 impl Program {
     /// Create a new program, with an empty `commands` vector and `variables` hash map.
-    fn new() -> Self {
+    pub fn new() -> Self {
         Program {
             commands: Vec::new(),
             variables: HashMap::new(),
+            turtle: Turtle::new(),
         }
     }
 
     /// Execute the program by iterating through the `commands` vector and executing them.
-    fn execute(&mut self) {
+    pub fn execute(&mut self) {
         // We can take the command vector as they're not going to be used again after this
         let commands: Vec<Command> = std::mem::take(&mut self.commands);
         commands.into_iter().for_each(|command: Command| {
-            command.execute(self);
+            let _ = command.execute(self);
         });
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use proptest::{arbitrary::any, prop_assert, prop_assume, proptest, strategy::Strategy};
+
     use super::*;
 
     #[test]
@@ -721,5 +763,28 @@ mod tests {
                 .unwrap(),
             EvalResult::Bool(true)
         );
+    }
+    proptest! {
+        #[test]
+        fn add_floats_correctly(lhs in any::<f32>(), rhs in any::<f32>()) {
+            // Given the nature of floating-point arithmetic, let's skip extreme values
+            prop_assume!(lhs.abs() < 1e5 && rhs.abs() < 1e5 && lhs + rhs < f32::MAX);
+
+            let context = Program::new(); // Assuming this creates a suitable context for evaluation
+            let lhs_expr = Expression::Value(EvalResult::Float(lhs));
+            let rhs_expr = Expression::Value(EvalResult::Float(rhs));
+
+            let add_expr = Expression::Add(Box::new(lhs_expr), Box::new(rhs_expr));
+
+            // Evaluate the addition expression
+            match add_expr.eval(&context) {
+                Ok(EvalResult::Float(result)) => {
+                    // Assert the property: The result should be approximately equal to the sum of lhs and rhs
+                    prop_assert!((result - (lhs + rhs)).abs() < f32::EPSILON);
+                },
+                _ => prop_assert!(false, "Expected Float result from addition"),
+            }
+
+        }
     }
 }
