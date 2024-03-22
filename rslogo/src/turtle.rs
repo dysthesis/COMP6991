@@ -1,0 +1,110 @@
+use crate::errors::TurtleError;
+
+pub struct Turtle {
+    x: f32,
+    y: f32,
+    heading: f32,
+    pen_state: PenState,
+    pen_color: f32,
+}
+
+impl Turtle {
+    /// Returns a new instance of Turtle with default values
+    pub fn new() -> Self {
+        Turtle {
+            x: 0_f32,
+            y: 0_f32,
+            heading: 0_f32,
+            pen_state: PenState::Up,
+            pen_color: 0_f32,
+        }
+    }
+
+    /// Validates and sets the value for the pen colour for the turtle
+    /// Returns the current pen colour when successful, and a ColourOutOfRange
+    /// error otherwise.
+    pub fn set_pen_colour(&mut self, value: f32) -> Result<f32, TurtleError> {
+        match value {
+            0_f32..=15_f32 => {
+                self.pen_color = value;
+                Ok(self.pen_color)
+            }
+            _ => Err(TurtleError::ColourOutOfRange(value)),
+        }
+    }
+
+    /// Set the heading of the turtle to the given value. Returns the
+    /// current heading of the turtle when successful, and an error otherwise
+    pub fn set_heading(&mut self, angle: f32) -> Result<f32, TurtleError> {
+        match angle {
+            0_f32..=360_f32 => {
+                self.heading = angle;
+                Ok(self.heading)
+            }
+            _ => Err(TurtleError::AngleOutOfRange(angle)),
+        }
+    }
+
+    /// Increments the heading of the turtle with the given value. Returns the
+    /// current heading of the turtle when successful, and an error otherwise
+    pub fn turn(&mut self, angle: f32) -> Result<f32, TurtleError> {
+        match angle {
+            0_f32..=360_f32 => {
+                self.heading += angle;
+                Ok(self.heading)
+            }
+            _ => Err(TurtleError::AngleOutOfRange(angle)),
+        }
+    }
+
+    pub fn set_coordinates(
+        &mut self,
+        x: Option<f32>,
+        y: Option<f32>,
+    ) -> Result<(f32, f32), TurtleError> {
+        match (x, y) {
+            (None, None) => Ok((self.x, self.y)),
+            (None, Some(y)) => {
+                self.y = y;
+                Ok((self.x, self.y))
+            }
+            (Some(x), None) => {
+                self.x = x;
+                Ok((self.x, self.y))
+            }
+            (Some(x), Some(y)) => {
+                self.x = x;
+                self.y = y;
+                Ok((self.x, self.y))
+            }
+        }
+    }
+
+    pub fn move_turtle(
+        &mut self,
+        x: Option<f32>,
+        y: Option<f32>,
+    ) -> Result<(f32, f32), TurtleError> {
+        match (x, y) {
+            (None, None) => Ok((self.x, self.y)),
+            (None, Some(y)) => {
+                self.y += y;
+                Ok((self.x, self.y))
+            }
+            (Some(x), None) => {
+                self.x += x;
+                Ok((self.x, self.y))
+            }
+            (Some(x), Some(y)) => {
+                self.x += x;
+                self.y += y;
+                Ok((self.x, self.y))
+            }
+        }
+    }
+}
+
+enum PenState {
+    Up,
+    Down,
+}
