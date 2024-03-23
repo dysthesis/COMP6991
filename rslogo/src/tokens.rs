@@ -53,10 +53,11 @@ macro_rules! logical_operation {
 }
 
 /// Ensure that only these types can ever be ultimately produced by the evaluation of expressions
-#[derive(Debug, Copy, Clone, PartialEq)] // I think there might be a better way of doing this, but bools and f32 are small and cheap anyways
+#[derive(Debug, Clone, PartialEq)] // I think there might be a better way of doing this, but bools and f32 are small and cheap anyways
 pub(crate) enum EvalResult {
     Bool(bool),
     Float(f32),
+    String(String),
 }
 
 /// Expressions are instructions which returns a value, but do not perform any actions.
@@ -73,11 +74,16 @@ pub(crate) enum Expression {
     /// A comment, preceded by two slashes ('//')
     Comment,
 
-    /// The most fundamental expression. This would simply evaluate to itself.
+    /// The most fundamental expression, a value, denoted by a double quote (`"`)
+    /// followed by a literal value (either a float, or a boolean).
+    /// This would simply evaluate to itself.
     Value(EvalResult),
 
+    /// A variable, denoted by a colon (`:`), followed by a name. This would evaluate to itself.
+    Variable(EvalResult),
+
     /// Query the value for a variable name
-    GetVariable(String),
+    GetVariable(Box<Expression>),
 
     /// Add two expressions together
     Add(Box<Expression>, Box<Expression>),
@@ -131,12 +137,25 @@ impl Expression {
     pub fn eval(&self, context: &Program) -> Result<EvalResult, InterpreterError> {
         match self {
             Expression::Comment => todo!(),
-            Expression::Value(value) => Ok(*value),
+            Expression::Value(value) => Ok(value.clone()),
+            Expression::Variable(name) => Ok(name.clone()),
             Expression::GetVariable(key) => {
-                let result = context.variables.get(key);
-                match result {
-                    Some(value) => Ok(*value),
-                    None => Err(InterpreterError::undefined_var(key.as_str())),
+                let variable_name: String = match key.eval(context) {
+                    Ok(name) => match name {
+                        EvalResult::Bool(_) => {
+                            return Err(InterpreterError::invalid_type("variable name", "boolean"))
+                        }
+                        EvalResult::Float(_) => {
+                            return Err(InterpreterError::invalid_type("variable name", "float"))
+                        }
+                        EvalResult::String(name) => name,
+                    },
+                    Err(_) => todo!("Make error for unsuccessful evaluation"),
+                };
+
+                match context.variables.get(&variable_name) {
+                    Some(val) => Ok(val.clone()),
+                    None => Err(InterpreterError::UndefinedVariable(variable_name)),
                 }
             }
             Expression::Add(lhs, rhs) => {
@@ -230,31 +249,267 @@ impl Command {
     /// Run the command token
     fn execute(&self, context: &mut Program) -> Result<(), Box<dyn Error>> {
         match self {
-            Command::PenUp => todo!(),
-            Command::PenDown => todo!(),
+            // Pen state manipulation
+            Command::PenUp => match context.turtle.set_pen_state(crate::turtle::PenState::Up) {
+                crate::turtle::PenState::Up => Ok(()),
+                crate::turtle::PenState::Down => Err(Box::new(
+                    InterpreterError::unsuccessful_operation("setting the pen state to up"),
+                )),
+            },
+            Command::PenDown => match context.turtle.set_pen_state(crate::turtle::PenState::Down) {
+                crate::turtle::PenState::Down => Ok(()),
+                crate::turtle::PenState::Up => Err(Box::new(
+                    InterpreterError::unsuccessful_operation("setting the pen state to down"),
+                )),
+            },
+            Command::SetPenColor(colour) => match colour.eval(context)? {
+                EvalResult::Bool(_) => Err(Box::new(InterpreterError::invalid_type(
+                    "pen colour",
+                    "boolean",
+                ))),
+                EvalResult::Float(val) => {
+                    context.turtle.set_pen_colour(val)?;
+                    Ok(())
+                }
+                EvalResult::String(_) => Err(Box::new(InterpreterError::invalid_type(
+                    "pen colour",
+                    "string",
+                ))),
+            },
+
+            // Turtle movement
             Command::Forward(distance) => {
                 let value: EvalResult = distance.eval(context)?;
                 match value {
-                    EvalResult::Bool(_) => todo!(),
+                    EvalResult::String(_) => Err(Box::new(InterpreterError::invalid_type(
+                        "distance", "string",
+                    ))),
+                    EvalResult::Bool(_) => Err(Box::new(InterpreterError::invalid_type(
+                        "distance", "boolean",
+                    ))),
                     EvalResult::Float(forward_distance) => {
                         let _ = context.turtle.move_turtle(None, Some(forward_distance));
                         Ok(())
                     }
                 }
             }
-            Command::Procedure(parameters, commands) => todo!(),
-            Command::Back(distance) => todo!(),
-            Command::Left(distance) => todo!(),
-            Command::Right(distance) => todo!(),
-            Command::SetPenColor(distance) => todo!(),
-            Command::Turn(distance) => todo!(),
-            Command::SetHeading(distance) => todo!(),
-            Command::SetX(x) => todo!(),
-            Command::SetY(y) => todo!(),
+            Command::Back(distance) => {
+                let value: EvalResult = distance.eval(context)?;
+                match value {
+                    EvalResult::String(_) => Err(Box::new(InterpreterError::invalid_type(
+                        "distance", "string",
+                    ))),
+                    EvalResult::Bool(_) => Err(Box::new(InterpreterError::invalid_type(
+                        "distance", "boolean",
+                    ))),
+                    EvalResult::Float(backward_distance) => {
+                        let _ = context.turtle.move_turtle(None, Some(-backward_distance));
+                        Ok(())
+                    }
+                }
+            }
+            Command::Left(distance) => {
+                let value: EvalResult = distance.eval(context)?;
+                match value {
+                    EvalResult::String(_) => Err(Box::new(InterpreterError::invalid_type(
+                        "distance", "string",
+                    ))),
+                    EvalResult::Bool(_) => Err(Box::new(InterpreterError::invalid_type(
+                        "distance", "boolean",
+                    ))),
+                    EvalResult::Float(leftward_distance) => {
+                        let _ = context.turtle.move_turtle(Some(-leftward_distance), None);
+                        Ok(())
+                    }
+                }
+            }
+            Command::Right(distance) => {
+                let value: EvalResult = distance.eval(context)?;
+                match value {
+                    EvalResult::String(_) => Err(Box::new(InterpreterError::invalid_type(
+                        "distance", "string",
+                    ))),
+                    EvalResult::Bool(_) => Err(Box::new(InterpreterError::invalid_type(
+                        "distance", "boolean",
+                    ))),
+                    EvalResult::Float(rightward_distance) => {
+                        let _ = context.turtle.move_turtle(Some(rightward_distance), None);
+                        Ok(())
+                    }
+                }
+            }
+
+            // Turtle state manipulation
+            Command::Turn(angle) => match angle.eval(context)? {
+                EvalResult::Bool(_) => {
+                    Err(Box::new(InterpreterError::invalid_type("angle", "bool")))
+                }
+                EvalResult::Float(val) => {
+                    context.turtle.turn(val)?;
+                    Ok(())
+                }
+                EvalResult::String(_) => {
+                    Err(Box::new(InterpreterError::invalid_type("angle", "string")))
+                }
+            },
+            Command::SetHeading(angle) => match angle.eval(context)? {
+                EvalResult::Bool(_) => {
+                    Err(Box::new(InterpreterError::invalid_type("angle", "bool")))
+                }
+                EvalResult::Float(val) => {
+                    context.turtle.set_heading(val)?;
+                    Ok(())
+                }
+                EvalResult::String(_) => {
+                    Err(Box::new(InterpreterError::invalid_type("angle", "string")))
+                }
+            },
+            Command::SetX(x) => match x.eval(context)? {
+                EvalResult::Bool(_) => Err(Box::new(InterpreterError::invalid_type(
+                    "coordinate",
+                    "bool",
+                ))),
+                EvalResult::Float(val) => {
+                    context.turtle.set_coordinates(Some(val), None)?;
+                    Ok(())
+                }
+                EvalResult::String(_) => {
+                    Err(Box::new(InterpreterError::invalid_type("bool", "string")))
+                }
+            },
+            Command::SetY(y) => match y.eval(context)? {
+                EvalResult::Bool(_) => Err(Box::new(InterpreterError::invalid_type(
+                    "coordinate",
+                    "bool",
+                ))),
+                EvalResult::Float(val) => {
+                    context.turtle.set_coordinates(None, Some(val))?;
+                    Ok(())
+                }
+                EvalResult::String(_) => {
+                    Err(Box::new(InterpreterError::invalid_type("bool", "string")))
+                }
+            },
+
+            // Variable manipulation
             Command::MakeVariable(name, value) => todo!(),
             Command::SetVariable(name, value) => todo!(),
-            Command::If(expression, commands) => todo!(),
-            Command::While(expression, command) => todo!(),
+
+            // Control flow
+            Command::If(expression, commands) => match expression.eval(context)? {
+                EvalResult::Bool(condition) => {
+                    if condition {
+                        // Iteratively execute each command and filter for errors
+                        let errors: Vec<Result<(), Box<dyn Error>>> = commands
+                            .iter()
+                            .map(|x: &Command| -> Result<(), Box<dyn Error>> { x.execute(context) })
+                            .filter(|x: &Result<(), Box<dyn Error>>| x.is_err())
+                            .collect();
+
+                        // If there are errors, we return an error
+                        match errors.is_empty() {
+                            false => Err(Box::new(InterpreterError::unsuccessful_operation(
+                                "conditional statement",
+                            ))),
+
+                            // If there are no errors, we're all good
+                            true => Ok(()),
+                        }
+                    } else {
+                        Ok(())
+                    }
+                }
+                EvalResult::Float(_) => Err(Box::new(InterpreterError::invalid_type(
+                    "condition",
+                    "float",
+                ))),
+                EvalResult::String(_) => Err(Box::new(InterpreterError::invalid_type(
+                    "condition",
+                    "string",
+                ))),
+            },
+            Command::While(expression, commands) => match expression.eval(context)? {
+                EvalResult::Bool(condition) => {
+                    let mut mutable_condition: bool = condition;
+                    while mutable_condition {
+                        // Update the mutable condition at the start of the loop
+                        mutable_condition = match expression.eval(context)? {
+                            EvalResult::Bool(val) => val,
+                            EvalResult::Float(_) => {
+                                return Err(Box::new(InterpreterError::invalid_type(
+                                    "condition",
+                                    "float",
+                                )))
+                            }
+                            EvalResult::String(_) => {
+                                return Err(Box::new(InterpreterError::invalid_type(
+                                    "condition",
+                                    "string",
+                                )))
+                            }
+                        };
+
+                        // Iteratively execute each command and filter for errors
+                        let errors: Vec<Result<(), Box<dyn Error>>> = commands
+                            .iter()
+                            .map(|x: &Command| -> Result<(), Box<dyn Error>> { x.execute(context) })
+                            .filter(|x: &Result<(), Box<dyn Error>>| x.is_err())
+                            .collect();
+
+                        // If there are errors, we return an error
+                        match errors.is_empty() {
+                            false => {
+                                return Err(Box::new(InterpreterError::unsuccessful_operation(
+                                    "conditional statement",
+                                )));
+                            }
+
+                            // If there are no errors, we're all good
+                            true => (),
+                        }
+                    }
+                    Ok(())
+                }
+                EvalResult::Float(_) => Err(Box::new(InterpreterError::invalid_type(
+                    "condition",
+                    "float",
+                ))),
+                EvalResult::String(_) => Err(Box::new(InterpreterError::invalid_type(
+                    "condition",
+                    "string",
+                ))),
+            },
+            Command::Procedure(parameters, commands) => {
+                /* Merge the parameters hash map with the global variables hash map */
+                let evaluated_parameters: HashMap<String, EvalResult> = parameters
+                    .iter()
+                    .try_fold(HashMap::new(), |mut acc, (key, val)| -> Result<HashMap<String, EvalResult>, Box<InterpreterError>> {
+                        match val.eval(context) {
+                            Ok(res) => {
+                                acc.insert(key.to_owned(), res);
+                                Ok(acc)
+                            }
+                            Err(e) => Err(Box::new(e)),
+                        }
+                    })?;
+                context.variables.extend(evaluated_parameters);
+
+                let errors: Vec<Result<(), Box<dyn Error>>> = commands
+                    .iter()
+                    .map(|x: &Command| -> Result<(), Box<dyn Error>> { x.execute(context) })
+                    .filter(|x: &Result<(), Box<dyn Error>>| x.is_err())
+                    .collect();
+
+                match errors.is_empty() {
+                    // Procedure terminated successfully
+                    true => Ok(()),
+
+                    // Procedure failed
+                    false => Err(Box::new(InterpreterError::unsuccessful_operation(
+                        "procedure",
+                    ))),
+                }
+            }
         }
     }
 }

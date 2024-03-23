@@ -79,6 +79,12 @@ pub enum InterpreterError {
 
     #[error("Unsupported operation: {0}")]
     UnsupportedOperation(String),
+
+    #[error("Invalid type for {0}: {1}")]
+    InvalidType(String, String),
+
+    #[error("Unsuccessful operation: {0}")]
+    UnsuccessfulOperation(String),
 }
 
 impl InterpreterError {
@@ -92,6 +98,14 @@ impl InterpreterError {
 
     pub fn unsupported_operation(name: &str) -> Self {
         InterpreterError::UnsupportedOperation(name.into())
+    }
+
+    pub fn invalid_type(field: &str, var_type: &str) -> Self {
+        InterpreterError::InvalidType(field.into(), var_type.into())
+    }
+
+    pub fn unsuccessful_operation(operation: &str) -> Self {
+        InterpreterError::UnsuccessfulOperation(operation.into())
     }
 }
 

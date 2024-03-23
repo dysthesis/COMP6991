@@ -1,5 +1,8 @@
 use crate::errors::TurtleError;
 
+/// The turtle is a construct in Logo which is responsible for generating the resulting image.
+/// A Logo program is effectively a set of instructions on manipulating the turtle to produce the
+/// desired image.
 pub struct Turtle {
     x: f32,
     y: f32,
@@ -102,9 +105,14 @@ impl Turtle {
             }
         }
     }
+
+    pub fn set_pen_state(&mut self, state: PenState) -> &PenState {
+        self.pen_state = state;
+        &self.pen_state
+    }
 }
 
-enum PenState {
+pub enum PenState {
     Up,
     Down,
 }

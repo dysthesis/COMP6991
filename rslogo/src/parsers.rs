@@ -43,36 +43,57 @@ macro_rules! parse_query_expression {
     };
 }
 
+/// Parse the given input as a literal value. This will return an instance of `Expression::Value`
+/// A literal value must be preceeded by a double quote (`"`).
+///
+/// # Example
+/// ```
+/// assert_eq!(parse_value_expression(Span::new("\"TRUE")), Expression::Value(EvalResult::Bool(true)));
+/// assert_eq!(parse_value_expression(Span::new("\"FALSE")), Expression::Value(EvalResult::Bool(false)));
+/// assert_eq!(parse_value_expression(Span::new("\"2.54")), Expression::Value(EvalResult::Float(2.54)))
+/// ```
 fn parse_value_expression(input: Span) -> IResult<Span, Expression, ErrorTree<Span>> {
+    /*
+     * A value literal can be one of the following: a float (f32), or a boolean. However, since Logo represents
+     * booleans as the strings "TRUE" and "FALSE", we cannot use nom's built-in bool parser. Instead, we will parse
+     * them as strings, using tag.
+     */
     alt((
         float
             .preceded_by(tag("\""))
-            .map(|res| Expression::Value(EvalResult::Float(res)))
+            // Instead of a string, we want to return the corresponding enum instance
+            .map(|res: f32| Expression::Value(EvalResult::Float(res)))
             .context("parsing literal value as float"),
         tag("TRUE")
             .preceded_by(tag("\""))
+            // The parsed value does not matter here. Rather, if the parser succeeds at all, we return an instance of the enum, disregarding the parsed string.
             .map(|_| Expression::Value(EvalResult::Bool(true)))
             .context("parsing literal value as boolean 'true'"),
         tag("FALSE")
             .preceded_by(tag("\""))
+            // The parsed value does not matter here. Rather, if the parser succeeds at all, we return an instance of the enum, disregarding the parsed string.
             .map(|_| Expression::Value(EvalResult::Bool(false)))
             .context("parsing literal value as boolean 'true'"),
     ))
     .context("parsing literal value")
     .parse(input)
-
-    // preceded(tag("\""), float)
-    //     // We want to return a token instead of the actual float
-    //     .map(|res| Expression::Value(EvalResult::Float(res)))
-    //     // Additional context for error messages
-    //     .context("parsing literal value")
-    //     .parse(input)
 }
 
-fn parse_get_variable_expression(input: Span) -> IResult<Span, Expression, ErrorTree<Span>> {
+/// Parse the given input as a variable. This will return an instance of `Expression::GetVariable`
+/// A variable must be preceeded by a double quote (`:`).
+///
+/// # Example
+/// ```
+/// assert_eq!(parse_value_expression(Span::new("\"TRUE")), Expression::Value(EvalResult::Bool(true)));
+/// assert_eq!(parse_value_expression(Span::new("\"FALSE")), Expression::Value(EvalResult::Bool(false)));
+/// assert_eq!(parse_value_expression(Span::new("\"2.54")), Expression::Value(EvalResult::Float(2.54)))
+/// ```
+fn parse_variable_expression(input: Span) -> IResult<Span, Expression, ErrorTree<Span>> {
     delimited(tag(":"), alphanumeric1, multispace1)
         // We want to return a token instead of the actual float
-        .map(|res: Span| -> Expression { Expression::GetVariable(res.into_fragment().into()) })
+        .map(|res: Span| -> Expression {
+            Expression::Variable(EvalResult::String(res.into_fragment().into()))
+        })
         // Additional context for error messages
         .context("parsing variable")
         .parse(input)
@@ -124,7 +145,7 @@ parse_operation_expression!(parse_or_expression, "OR", Expression::Or);
 fn parse_expression(input: Span) -> IResult<Span, Expression, ErrorTree<Span>> {
     alt((
         parse_value_expression,
-        parse_get_variable_expression,
+        parse_variable_expression,
         parse_addition_expression,
         parse_subtraction_expression,
         parse_multiplication_expression,
