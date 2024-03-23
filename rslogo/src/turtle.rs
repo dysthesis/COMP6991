@@ -110,8 +110,25 @@ impl Turtle {
         self.pen_state = state;
         &self.pen_state
     }
+
+    pub fn get_pen_state(&self) -> &PenState {
+        &self.pen_state
+    }
+
+    pub(crate) fn get_turtle_coords(&self) -> (f32, f32) {
+        (self.x, self.y)
+    }
+
+    pub fn get_pen_colour(&self) -> f32 {
+        self.pen_color
+    }
+
+    pub fn get_heading(&self) -> f32 {
+        self.heading
+    }
 }
 
+#[derive(Debug, PartialEq)]
 pub enum PenState {
     Up,
     Down,

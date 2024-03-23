@@ -1,9 +1,9 @@
 use crate::errors::InterpreterError;
 use crate::turtle::Turtle;
+use rayon::prelude::*;
 use std::collections::HashMap;
 use std::error::Error;
 use std::ops::{Add, Div, Mul, Sub};
-
 /// Macro to reduce boilerplate for arithmetic expressions
 macro_rules! arithmetic_operation {
     ($op:ident, $lhs:expr, $rhs:expr, $context:expr, $err_msg:expr) => {{
@@ -185,10 +185,16 @@ impl Expression {
             Expression::LessThan(lhs, rhs) => comparison!(lt, lhs, rhs, context),
             Expression::And(lhs, rhs) => logical_operation!(&&, lhs, rhs, context),
             Expression::Or(lhs, rhs) => logical_operation!(||, lhs, rhs, context),
-            Expression::XCor => todo!(),
-            Expression::YCor => todo!(),
-            Expression::Heading => todo!(),
-            Expression::Colour => todo!(),
+            Expression::XCor => {
+                let (xcor, _) = context.turtle.get_turtle_coords();
+                Ok(EvalResult::Float(xcor))
+            }
+            Expression::YCor => {
+                let (_, ycor) = context.turtle.get_turtle_coords();
+                Ok(EvalResult::Float(ycor))
+            }
+            Expression::Heading => Ok(EvalResult::Float(context.turtle.get_heading())),
+            Expression::Colour => Ok(EvalResult::Float(context.turtle.get_pen_colour())),
         }
     }
 }
@@ -392,18 +398,34 @@ impl Command {
             },
 
             // Variable manipulation
-            Command::MakeVariable(name, value) => todo!(),
-            Command::SetVariable(name, value) => todo!(),
+            Command::MakeVariable(name, value) => {
+                context
+                    .variables
+                    .insert(name.to_owned(), value.eval(context)?);
+                Ok(())
+            }
+            Command::SetVariable(name, value) => match context.variables.contains_key(name) {
+                true => {
+                    context
+                        .variables
+                        .insert(name.to_owned(), value.eval(context)?);
+                    Ok(())
+                }
+                false => Err(Box::new(InterpreterError::undefined_var(name))),
+            },
 
             // Control flow
             Command::If(expression, commands) => match expression.eval(context)? {
                 EvalResult::Bool(condition) => {
                     if condition {
                         // Iteratively execute each command and filter for errors
-                        let errors: Vec<Result<(), Box<dyn Error>>> = commands
+                        let errors: Vec<Box<dyn Error>> = commands
                             .iter()
                             .map(|x: &Command| -> Result<(), Box<dyn Error>> { x.execute(context) })
                             .filter(|x: &Result<(), Box<dyn Error>>| x.is_err())
+                            .map(|x: Result<(), Box<dyn Error>>| -> Box<dyn Error> {
+                                x.expect_err("We filtered for errors")
+                            })
                             .collect();
 
                         // If there are errors, we return an error
@@ -419,6 +441,8 @@ impl Command {
                         Ok(())
                     }
                 }
+
+                // Invalid types
                 EvalResult::Float(_) => Err(Box::new(InterpreterError::invalid_type(
                     "condition",
                     "float",
@@ -435,6 +459,8 @@ impl Command {
                         // Update the mutable condition at the start of the loop
                         mutable_condition = match expression.eval(context)? {
                             EvalResult::Bool(val) => val,
+
+                            // Invalid types
                             EvalResult::Float(_) => {
                                 return Err(Box::new(InterpreterError::invalid_type(
                                     "condition",
@@ -479,8 +505,14 @@ impl Command {
                     "string",
                 ))),
             },
+
             Command::Procedure(parameters, commands) => {
-                /* Merge the parameters hash map with the global variables hash map */
+                /*
+                 * Since procedure parameters must be global variables as well, we need to merge the `parameters`
+                 * hash map with the `context.variables` hash map. However, `context.variables` is of type
+                 * `HashMap<String, EvalResult>`, whereas `parameters` is of type `HashMap<String, Expression>`.
+                 * Therefore, we need to evaluate these expressions before merging the hashmaps.
+                 */
                 let evaluated_parameters: HashMap<String, EvalResult> = parameters
                     .iter()
                     .try_fold(HashMap::new(), |mut acc, (key, val)| -> Result<HashMap<String, EvalResult>, Box<InterpreterError>> {
@@ -492,8 +524,11 @@ impl Command {
                             Err(e) => Err(Box::new(e)),
                         }
                     })?;
+
+                // Now that the expressions are evaluated, we can merge it with `context.variables`
                 context.variables.extend(evaluated_parameters);
 
+                // Iterate through the vector of commands and collect any execution errors
                 let errors: Vec<Result<(), Box<dyn Error>>> = commands
                     .iter()
                     .map(|x: &Command| -> Result<(), Box<dyn Error>> { x.execute(context) })
@@ -537,20 +572,31 @@ impl Program {
     }
 
     /// Execute the program by iterating through the `commands` vector and executing them.
-    pub fn execute(&mut self) {
+    /// Returns a vector of errors
+    pub fn execute(&mut self) -> Vec<Box<dyn Error>> {
         // We can take the command vector as they're not going to be used again after this
         let commands: Vec<Command> = std::mem::take(&mut self.commands);
+        let mut result: Vec<Result<(), Box<dyn Error>>> = Vec::new();
         commands.into_iter().for_each(|command: Command| {
-            let _ = command.execute(self);
+            let curr_result = command.execute(self);
+            result.push(curr_result);
         });
+
+        // return only the errors
+        let errors: Vec<Box<dyn Error>> = result
+            .into_iter()
+            .filter(|x| x.is_err())
+            .map(|x| x.unwrap_err())
+            .collect();
+
+        errors
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use proptest::{arbitrary::any, prop_assert, prop_assume, proptest, strategy::Strategy};
-
     use super::*;
+    use proptest::prelude::*;
 
     #[test]
     fn valid_add() {
@@ -1019,12 +1065,31 @@ mod tests {
             EvalResult::Bool(true)
         );
     }
-    proptest! {
-        #[test]
-        fn add_floats_correctly(lhs in any::<f32>(), rhs in any::<f32>()) {
-            // Given the nature of floating-point arithmetic, let's skip extreme values
-            prop_assume!(lhs.abs() < 1e5 && rhs.abs() < 1e5 && lhs + rhs < f32::MAX);
 
+    #[test]
+    fn penup_command() {
+        let mut program = Program::new();
+        program.turtle.set_pen_state(crate::turtle::PenState::Down);
+        program.commands.push(Command::PenUp);
+        program.execute();
+        assert_eq!(program.turtle.get_pen_state(), &crate::turtle::PenState::Up);
+    }
+
+    #[test]
+    fn pendown_command() {
+        let mut program = Program::new();
+        program.commands.push(Command::PenDown);
+        program.execute();
+        assert_eq!(
+            program.turtle.get_pen_state(),
+            &crate::turtle::PenState::Down
+        );
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(100000))]
+        #[test]
+        fn add_floats_correctly(lhs in proptest::num::f32::NORMAL, rhs in proptest::num::f32::NORMAL) {
             let context = Program::new(); // Assuming this creates a suitable context for evaluation
             let lhs_expr = Expression::Value(EvalResult::Float(lhs));
             let rhs_expr = Expression::Value(EvalResult::Float(rhs));
@@ -1035,11 +1100,96 @@ mod tests {
             match add_expr.eval(&context) {
                 Ok(EvalResult::Float(result)) => {
                     // Assert the property: The result should be approximately equal to the sum of lhs and rhs
-                    prop_assert!((result - (lhs + rhs)).abs() < f32::EPSILON);
+                    prop_assert!((result - (lhs + rhs)).abs() < f32::EPSILON.abs());
                 },
                 _ => prop_assert!(false, "Expected Float result from addition"),
             }
+        }
 
+        #[test]
+        fn move_turtle_correctly(movements in proptest::collection::vec((proptest::num::f32::NORMAL, proptest::num::f32::NORMAL), 0..1000)) {
+            let mut program = Program::new();
+            let (start_x, start_y) = program.turtle.get_turtle_coords();
+
+            let (x_incr, y_incr) = movements
+                .par_iter()
+                .fold(|| (0.0, 0.0), |acc, &x| (acc.0 + x.0, acc.1 + x.1))
+                .reduce(|| (0.0, 0.0), |a, b| (a.0 + b.0, a.1 + b.1));
+
+            let commands: Vec<Command> = movements
+                .par_iter()
+                .flat_map(|(x, y)| {
+                    let mut cmds: Vec<Command> = Vec::new();
+                    // Handle the x movement
+                    if *x > 0.0 {
+                        cmds.push(Command::Right(Expression::Value(EvalResult::Float((*x).abs()))));
+                    } else if *x < 0.0 {
+                        cmds.push(Command::Left(Expression::Value(EvalResult::Float((*x).abs()))));
+                    }
+
+                    // Handle the y movement
+                    if *y > 0.0 {
+                        cmds.push(Command::Forward(Expression::Value(EvalResult::Float((*y).abs()))));
+                    } else if *y < 0.0 {
+                        cmds.push(Command::Back(Expression::Value(EvalResult::Float((*y).abs()))));
+                    }
+
+                    cmds.into_par_iter()
+                })
+                .collect();
+
+            program.commands.extend(commands);
+            let errors = program.execute();
+
+            prop_assert!(errors.is_empty());
+            let (end_x, end_y) = program.turtle.get_turtle_coords();
+
+            prop_assert!(( end_x - (start_x + x_incr) ).abs() < f32::EPSILON.abs());
+            prop_assert!(( end_y - (start_y + y_incr) ).abs() < f32::EPSILON.abs());
+        }
+
+        #[test]
+        fn set_colour_correctly(colour in any::<f32>()) {
+           let mut program = Program::new();
+            let mut commands = vec![Command::SetPenColor(Expression::Value(EvalResult::Float(colour)))];
+            program.commands.append(&mut commands);
+            let errors = program.execute();
+            match colour {
+                // Valid colour range
+                colour if (0.0..=15.0).contains(&colour) => {
+                    assert!(errors.is_empty());
+                    assert_eq!(program.turtle.get_pen_colour(), colour);
+                },
+
+                // Everything else is invalid
+                _ => {
+                    assert!(!errors.is_empty());
+                    assert_eq!(program.turtle.get_pen_colour(), 0.0);
+                },
+            };
+        }
+
+        #[test]
+        fn turn_turtle_correctly(angles in any::<Vec<f32>>()) {
+            let mut program: Program = Program::new();
+            let mut commands: Vec<Command> = Vec::new();
+
+            let mut num_expected_failures: usize = 0;
+            let mut expected_change_in_angle: f32 = 0.0;
+            for angle in angles {
+                if (0.0..=360.0).contains(&angle) {
+                    expected_change_in_angle += angle;
+                } else {
+                    num_expected_failures += 1;
+                }
+                commands.push(Command::Turn(Expression::Value(EvalResult::Float(angle))));
+            }
+
+            program.commands.extend(commands);
+            let errors = program.execute();
+
+            assert_eq!(errors.len(), num_expected_failures);
+            assert_eq!(program.turtle.get_heading(), expected_change_in_angle);
         }
     }
 }
