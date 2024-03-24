@@ -3,12 +3,13 @@ mod parsers;
 mod tokens;
 mod turtle;
 
-use std::path::PathBuf;
+use std::{borrow::Borrow, path::PathBuf};
 
 use clap::Parser;
 // use unsvg::Image;
 
-use miette::{Context, IntoDiagnostic, Result};
+use miette::{Context, GraphicalReportHandler, IntoDiagnostic, Result};
+use tokens::{Command, Program};
 
 /// A simple program to parse four arguments using clap.
 #[derive(Parser)]
@@ -46,6 +47,23 @@ fn main() -> Result<()> {
     let _image_path: PathBuf = args.image_path;
     let _height: u32 = args.height;
     let _width: u32 = args.width;
+
+    let commands: Vec<Command> =
+        match crate::parsers::parse(Box::leak(file.to_string().into_boxed_str())) {
+            Ok(res) => res,
+            Err(e) => {
+                let mut s = String::new();
+                GraphicalReportHandler::new()
+                    .render_report(&mut s, &e)
+                    .unwrap();
+                println!("{s}");
+                return Err(e).into_diagnostic();
+            }
+        };
+
+    let program: Program = Program::new(commands);
+
+    println!("{:?}", program.commands);
 
     // There should be no remainder string from the parser. This should be ensured by nom's all_consuming
 

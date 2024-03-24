@@ -71,9 +71,6 @@ pub(crate) enum EvalResult {
 /// ```
 #[derive(Debug, PartialEq)]
 pub(crate) enum Expression {
-    /// A comment, preceded by two slashes ('//')
-    Comment,
-
     /// The most fundamental expression, a value, denoted by a double quote (`"`)
     /// followed by a literal value (either a float, or a boolean).
     /// This would simply evaluate to itself.
@@ -136,7 +133,6 @@ impl Expression {
     /// Evaluates this expression. When successful, returns an instance of EvalResult (either a boolean or f32).
     pub fn eval(&self, context: &Program) -> Result<EvalResult, InterpreterError> {
         match self {
-            Expression::Comment => todo!(),
             Expression::Value(value) => Ok(value.clone()),
             Expression::Variable(name) => Ok(name.clone()),
             Expression::GetVariable(key) => {
@@ -200,7 +196,9 @@ impl Expression {
 }
 
 /// This is a list of executable commands for the logo language. They may take in strings, Expressions, or vectors of Commands as argument
+#[derive(Debug)]
 pub(crate) enum Command {
+    Comment,
     /// Command to set the pen state to up.
     PenUp,
 
@@ -255,6 +253,7 @@ impl Command {
     /// Run the command token
     fn execute(&self, context: &mut Program) -> Result<(), Box<dyn Error>> {
         match self {
+            Command::Comment => Ok(()),
             // Pen state manipulation
             Command::PenUp => match context.turtle.set_pen_state(crate::turtle::PenState::Up) {
                 crate::turtle::PenState::Up => Ok(()),
@@ -552,7 +551,7 @@ impl Command {
 /// The parsed logo program.
 pub struct Program {
     /// List of commands contained in the program. This will be iterated through and executed.
-    commands: Vec<Command>,
+    pub(crate) commands: Vec<Command>,
 
     /// List of variables defined in the program.
     variables: HashMap<String, EvalResult>,
@@ -563,9 +562,9 @@ pub struct Program {
 
 impl Program {
     /// Create a new program, with an empty `commands` vector and `variables` hash map.
-    pub fn new() -> Self {
+    pub fn new(commands: Vec<Command>) -> Self {
         Program {
-            commands: Vec::new(),
+            commands,
             variables: HashMap::new(),
             turtle: Turtle::new(),
         }
@@ -601,7 +600,7 @@ mod tests {
     #[test]
     fn valid_add() {
         // Dummy program to satisfy parameter
-        let context: Program = Program::new();
+        let context: Program = Program::new(Vec::new());
         let lhs: Expression = Expression::Value(EvalResult::Float(1_f32));
         let rhs: Expression = Expression::Value(EvalResult::Float(2_f32));
         assert_eq!(
@@ -616,7 +615,7 @@ mod tests {
     #[test]
     fn valid_sub() {
         // Dummy program to satisfy parameter
-        let context: Program = Program::new();
+        let context: Program = Program::new(Vec::new());
         let lhs: Expression = Expression::Value(EvalResult::Float(1_f32));
         let rhs: Expression = Expression::Value(EvalResult::Float(2_f32));
         assert_eq!(
@@ -631,7 +630,7 @@ mod tests {
     #[test]
     fn valid_multiply() {
         // Dummy program to satisfy parameter
-        let context: Program = Program::new();
+        let context: Program = Program::new(Vec::new());
         let lhs: Expression = Expression::Value(EvalResult::Float(1_f32));
         let rhs: Expression = Expression::Value(EvalResult::Float(2_f32));
         assert_eq!(
@@ -646,7 +645,7 @@ mod tests {
     #[test]
     fn valid_divide() {
         // Dummy program to satisfy parameter
-        let context: Program = Program::new();
+        let context: Program = Program::new(Vec::new());
         let lhs: Expression = Expression::Value(EvalResult::Float(1_f32));
         let rhs: Expression = Expression::Value(EvalResult::Float(2_f32));
         assert_eq!(
@@ -661,7 +660,7 @@ mod tests {
     #[test]
     fn invalid_divide_by_zero() {
         // Dummy program to satisfy parameter
-        let context: Program = Program::new();
+        let context: Program = Program::new(Vec::new());
 
         let lhs: Expression = Expression::Value(EvalResult::Float(1_f32));
         let rhs: Expression = Expression::Value(EvalResult::Float(0_f32));
@@ -675,7 +674,7 @@ mod tests {
     #[test]
     fn invalid_arithmetic_on_bool() {
         // Dummy program to satisfy parameter
-        let context: Program = Program::new();
+        let context: Program = Program::new(Vec::new());
         let lhs: Expression = Expression::Value(EvalResult::Bool(true));
         let rhs: Expression = Expression::Value(EvalResult::Bool(false));
 
@@ -714,7 +713,7 @@ mod tests {
     #[test]
     fn valid_and() {
         // Dummy program to satisfy parameter
-        let context: Program = Program::new();
+        let context: Program = Program::new(Vec::new());
 
         let lhs: Expression = Expression::Value(EvalResult::Bool(true));
         let rhs: Expression = Expression::Value(EvalResult::Bool(false));
@@ -748,7 +747,7 @@ mod tests {
     #[test]
     fn valid_or() {
         // Dummy program to satisfy parameter
-        let context: Program = Program::new();
+        let context: Program = Program::new(Vec::new());
 
         let lhs: Expression = Expression::Value(EvalResult::Bool(true));
         let rhs: Expression = Expression::Value(EvalResult::Bool(false));
@@ -783,7 +782,7 @@ mod tests {
     #[test]
     fn invalid_logic_on_float() {
         // Dummy program to satisfy parameter
-        let context: Program = Program::new();
+        let context: Program = Program::new(Vec::new());
         let lhs: Expression = Expression::Value(EvalResult::Float(1_f32));
         let rhs: Expression = Expression::Value(EvalResult::Float(2_f32));
 
@@ -807,7 +806,7 @@ mod tests {
     #[test]
     fn valid_greater_than_float() {
         // Dummy program to satisfy parameter
-        let context: Program = Program::new();
+        let context: Program = Program::new(Vec::new());
         let lhs: Expression = Expression::Value(EvalResult::Float(1_f32));
         let rhs: Expression = Expression::Value(EvalResult::Float(2_f32));
 
@@ -831,7 +830,7 @@ mod tests {
     #[test]
     fn valid_greater_than_bool() {
         // Dummy program to satisfy parameter
-        let context: Program = Program::new();
+        let context: Program = Program::new(Vec::new());
         let lhs: Expression = Expression::Value(EvalResult::Bool(true));
         let rhs: Expression = Expression::Value(EvalResult::Bool(false));
 
@@ -854,7 +853,7 @@ mod tests {
     #[test]
     fn valid_less_than_float() {
         // Dummy program to satisfy parameter
-        let context: Program = Program::new();
+        let context: Program = Program::new(Vec::new());
         let lhs: Expression = Expression::Value(EvalResult::Float(1_f32));
         let rhs: Expression = Expression::Value(EvalResult::Float(2_f32));
 
@@ -878,7 +877,7 @@ mod tests {
     #[test]
     fn valid_less_than_bool() {
         // Dummy program to satisfy parameter
-        let context: Program = Program::new();
+        let context: Program = Program::new(Vec::new());
         let lhs: Expression = Expression::Value(EvalResult::Bool(true));
         let rhs: Expression = Expression::Value(EvalResult::Bool(false));
 
@@ -902,7 +901,7 @@ mod tests {
     #[test]
     fn valid_equals_float() {
         // Dummy program to satisfy parameter
-        let context: Program = Program::new();
+        let context: Program = Program::new(Vec::new());
 
         let lhs: Expression = Expression::Value(EvalResult::Float(1_f32));
         let rhs: Expression = Expression::Value(EvalResult::Float(1_f32));
@@ -927,7 +926,7 @@ mod tests {
     #[test]
     fn valid_not_equals_float() {
         // Dummy program to satisfy parameter
-        let context: Program = Program::new();
+        let context: Program = Program::new(Vec::new());
 
         let lhs: Expression = Expression::Value(EvalResult::Float(1_f32));
         let rhs: Expression = Expression::Value(EvalResult::Float(1_f32));
@@ -953,7 +952,7 @@ mod tests {
     #[test]
     fn valid_not_equals_bool() {
         // Dummy program to satisfy parameter
-        let context: Program = Program::new();
+        let context: Program = Program::new(Vec::new());
 
         let lhs: Expression = Expression::Value(EvalResult::Bool(true));
         let rhs: Expression = Expression::Value(EvalResult::Bool(true));
@@ -978,7 +977,7 @@ mod tests {
     #[test]
     fn valid_equals_bool() {
         // Dummy program to satisfy parameter
-        let context: Program = Program::new();
+        let context: Program = Program::new(Vec::new());
 
         let lhs: Expression = Expression::Value(EvalResult::Bool(true));
         let rhs: Expression = Expression::Value(EvalResult::Bool(true));
@@ -1004,7 +1003,7 @@ mod tests {
     #[test]
     fn invalid_equals() {
         // Dummy program to satisfy parameter
-        let context: Program = Program::new();
+        let context: Program = Program::new(Vec::new());
 
         let lhs: Expression = Expression::Value(EvalResult::Bool(true));
         let rhs: Expression = Expression::Value(EvalResult::Float(1_f32));
@@ -1020,7 +1019,7 @@ mod tests {
     #[test]
     fn invalid_not_equals() {
         // Dummy program to satisfy parameter
-        let context: Program = Program::new();
+        let context: Program = Program::new(Vec::new());
 
         let lhs: Expression = Expression::Value(EvalResult::Bool(true));
         let rhs: Expression = Expression::Value(EvalResult::Float(1_f32));
@@ -1036,7 +1035,7 @@ mod tests {
     #[test]
     fn integration() {
         // Dummy program to satisfy parameter
-        let context: Program = Program::new();
+        let context: Program = Program::new(Vec::new());
 
         let lhs: Expression = Expression::Divide(
             Box::new(Expression::Add(
@@ -1068,7 +1067,7 @@ mod tests {
 
     #[test]
     fn penup_command() {
-        let mut program = Program::new();
+        let mut program = Program::new(Vec::new());
         program.turtle.set_pen_state(crate::turtle::PenState::Down);
         program.commands.push(Command::PenUp);
         program.execute();
@@ -1077,7 +1076,7 @@ mod tests {
 
     #[test]
     fn pendown_command() {
-        let mut program = Program::new();
+        let mut program = Program::new(Vec::new());
         program.commands.push(Command::PenDown);
         program.execute();
         assert_eq!(
@@ -1090,7 +1089,7 @@ mod tests {
         #![proptest_config(ProptestConfig::with_cases(100000))]
         #[test]
         fn add_floats_correctly(lhs in proptest::num::f32::NORMAL, rhs in proptest::num::f32::NORMAL) {
-            let context = Program::new(); // Assuming this creates a suitable context for evaluation
+            let context = Program::new(Vec::new()); // Assuming this creates a suitable context for evaluation
             let lhs_expr = Expression::Value(EvalResult::Float(lhs));
             let rhs_expr = Expression::Value(EvalResult::Float(rhs));
 
@@ -1108,9 +1107,6 @@ mod tests {
 
         #[test]
         fn move_turtle_correctly(movements in proptest::collection::vec((proptest::num::f32::NORMAL, proptest::num::f32::NORMAL), 0..1000)) {
-            let mut program = Program::new();
-            let (start_x, start_y) = program.turtle.get_turtle_coords();
-
             let (x_incr, y_incr) = movements
                 .par_iter()
                 .fold(|| (0.0, 0.0), |acc, &x| (acc.0 + x.0, acc.1 + x.1))
@@ -1138,7 +1134,8 @@ mod tests {
                 })
                 .collect();
 
-            program.commands.extend(commands);
+            let mut program = Program::new(commands);
+            let (start_x, start_y) = program.turtle.get_turtle_coords();
             let errors = program.execute();
 
             prop_assert!(errors.is_empty());
@@ -1150,9 +1147,7 @@ mod tests {
 
         #[test]
         fn set_colour_correctly(colour in any::<f32>()) {
-           let mut program = Program::new();
-            let mut commands = vec![Command::SetPenColor(Expression::Value(EvalResult::Float(colour)))];
-            program.commands.append(&mut commands);
+           let mut program = Program::new(vec![Command::SetPenColor(Expression::Value(EvalResult::Float(colour)))]);
             let errors = program.execute();
             match colour {
                 // Valid colour range
@@ -1171,7 +1166,6 @@ mod tests {
 
         #[test]
         fn turn_turtle_correctly(angles in any::<Vec<f32>>()) {
-            let mut program: Program = Program::new();
             let mut commands: Vec<Command> = Vec::new();
 
             let mut num_expected_failures: usize = 0;
@@ -1185,7 +1179,7 @@ mod tests {
                 commands.push(Command::Turn(Expression::Value(EvalResult::Float(angle))));
             }
 
-            program.commands.extend(commands);
+            let mut program: Program = Program::new(commands);
             let errors = program.execute();
 
             assert_eq!(errors.len(), num_expected_failures);

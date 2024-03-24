@@ -1,19 +1,18 @@
 use nom::{
     branch::alt,
     bytes::complete::take_until,
-    character::complete::{alphanumeric1, multispace1},
+    character::complete::{alphanumeric1, multispace0, multispace1, space1},
+    multi::many0,
     number::complete::float,
     sequence::{delimited, preceded, separated_pair, tuple},
     IResult, Parser,
 };
 use nom_supreme::{error::ErrorTree, tag::complete::tag, ParserExt};
+use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
 use crate::{
-    errors::Span,
-    tokens::{
-        EvalResult::{self},
-        Expression,
-    },
+    errors::{format_parse_error, ParseError, Span},
+    tokens::{Command, EvalResult, Expression},
 };
 
 /// Macro to reduce boilerplate for arithmetic parsing
@@ -21,8 +20,8 @@ macro_rules! parse_operation_expression {
     ($fn_name:ident, $op:expr, $constructor:path) => {
         fn $fn_name(input: Span) -> IResult<Span, Expression, ErrorTree<Span>> {
             preceded(
-                tuple((tag($op), multispace1)),
-                separated_pair(parse_expression, multispace1, parse_expression),
+                tag($op),
+                separated_pair(parse_expression, multispace1, parse_expression).preceded_by(space1),
             )
             .map(|(lhs, rhs)| $constructor(Box::new(lhs), Box::new(rhs)))
             .context(concat!("when parsing ", stringify!($op), " expression"))
@@ -43,6 +42,22 @@ macro_rules! parse_query_expression {
     };
 }
 
+/// Macro to reduce boilerplate for parsing a verb
+macro_rules! command_parser {
+    ($tag:expr, $constructor:expr) => {
+        tag($tag)
+            .context(concat!("parsing as ", stringify!($tag)))
+            .map(|_| $constructor as fn(Expression) -> Command)
+    };
+}
+/// Macro to reduce boilerplate for parsing a verb
+macro_rules! control_flow_parser {
+    ($tag:expr, $constructor:expr) => {
+        tag($tag)
+            .context(concat!("parsing as ", stringify!($tag)))
+            .map(|_| $constructor as fn(Expression, Vec<Command>) -> Command)
+    };
+}
 /// Parse the given input as a literal value. This will return an instance of `Expression::Value`
 /// A literal value must be preceeded by a double quote (`"`).
 ///
@@ -124,9 +139,9 @@ parse_query_expression!(
     Expression::Colour
 );
 
-fn parse_comment_expression(input: Span) -> IResult<Span, Expression, ErrorTree<Span>> {
+fn parse_comment(input: Span) -> IResult<Span, Command, ErrorTree<Span>> {
     preceded(tag("//"), take_until("\n"))
-        .map(|_| Expression::Comment)
+        .map(|_| Command::Comment)
         .context("parsing comment")
         .parse(input)
 }
@@ -161,13 +176,107 @@ fn parse_expression(input: Span) -> IResult<Span, Expression, ErrorTree<Span>> {
         parse_colour_expression,
         parse_heading_expression,
     ))
+    .delimited_by(multispace0)
     .context("parsing expression")
     .parse(input)
 }
 
+fn parse_pen_state_commands(input: Span) -> IResult<Span, Command, ErrorTree<Span>> {
+    alt((
+        tag("PENUP")
+            .context("parsing as PENUP")
+            .map(|_| Command::PenUp),
+        tag("PENDOWN")
+            .context("parsing as PENDOWN")
+            .map(|_| Command::PenDown),
+    ))
+    .context("parsing as pen state command")
+    .parse(input)
+}
+
+fn parse_single_expression_commands(input: Span) -> IResult<Span, Command, ErrorTree<Span>> {
+    let parse_verb = alt((
+        command_parser!("FORWARD", Command::Forward),
+        command_parser!("BACK", Command::Back),
+        command_parser!("LEFT", Command::Left),
+        command_parser!("RIGHT", Command::Right),
+        command_parser!("SETPENCOLOR", Command::SetPenColor),
+        command_parser!("TURN", Command::Turn),
+        command_parser!("SETHEADING", Command::SetHeading),
+        command_parser!("SETX", Command::SetX),
+        command_parser!("SETY", Command::SetY),
+    ))
+    .context("parsing verb for a single expression command");
+
+    separated_pair(parse_verb, space1, parse_expression)
+        .map(|(verb, expression)| verb(expression))
+        .parse(input)
+}
+
+fn parse_control_flow_commands(input: Span) -> IResult<Span, Command, ErrorTree<Span>> {
+    let verb = alt((
+        control_flow_parser!("IF", Command::If),
+        control_flow_parser!("WHILE", Command::While),
+    ))
+    .context("parsing verb for a control flow command");
+
+    separated_pair(
+        verb,
+        multispace1,
+        delimited(
+            tag("["),
+            separated_pair(parse_expression, multispace1, parse_commands_many)
+                .delimited_by(multispace0),
+            tag("]"),
+        ),
+    )
+    .context("parsing a control flow expression")
+    .map(|(verb, (arg0, arg1))| verb(arg0, arg1))
+    .parse(input)
+}
+
+fn parse_command_expression(input: Span) -> IResult<Span, Command, ErrorTree<Span>> {
+    alt((
+        parse_comment,
+        parse_pen_state_commands,
+        parse_single_expression_commands,
+    ))
+    .cut()
+    .delimited_by(multispace0)
+    .context("parsing command")
+    .parse(input)
+}
+
+fn parse_commands_many(input: Span) -> IResult<Span, Vec<Command>, ErrorTree<Span>> {
+    many0(parse_command_expression)
+        .map(|res| {
+            res.into_par_iter()
+                .filter_map(|x: Command| -> Option<Command> {
+                    match x {
+                        Command::Comment => None,
+                        _ => Some(x),
+                    }
+                })
+                .collect()
+        })
+        .all_consuming()
+        .parse(input)
+}
+
+pub fn parse(input: &str) -> Result<Vec<Command>, ParseError> {
+    match parse_commands_many(Span::new(input)) {
+        Ok((_, res)) => Ok(res),
+        Err(e) => match e {
+            nom::Err::Incomplete(_) => unreachable!("We're not using streaming parsers"),
+            nom::Err::Error(e) => Err(format_parse_error(input, e)),
+            nom::Err::Failure(e) => Err(format_parse_error(input, e)),
+        },
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::{errors::format_parse_error, tokens::Program};
+    use crate::tokens::Program;
 
     use super::*;
     use proptest::prelude::*;
@@ -226,7 +335,7 @@ mod tests {
 
                     // Example assertions (you'll need to replace these with actual logic to extract values from `lhs` and `rhs`)
                     // Dummy program for evaluation
-                    let context = Program::new();
+                    let context = Program::new(Vec::new());
 
                     let lhs_val = lhs.eval(&context).expect("A simple Expression::Value should not fail to evaluate");
                     assert_eq!(lhs_val, EvalResult::Float(a), "LHS value does not match expected");
@@ -250,7 +359,7 @@ mod tests {
 
                     // Example assertions (you'll need to replace these with actual logic to extract values from `lhs` and `rhs`)
                     // Dummy program for evaluation
-                    let context = Program::new();
+                    let context = Program::new(Vec::new());
 
                     let lhs_val = lhs.eval(&context).expect("A simple Expression::Value should not fail to evaluate");
                     assert_eq!(lhs_val, EvalResult::Float(a), "LHS value does not match expected");
@@ -274,7 +383,7 @@ mod tests {
 
                     // Example assertions (you'll need to replace these with actual logic to extract values from `lhs` and `rhs`)
                     // Dummy program for evaluation
-                    let context = Program::new();
+                    let context = Program::new(Vec::new());
 
                     let lhs_val = lhs.eval(&context).expect("A simple Expression::Value should not fail to evaluate");
                     assert_eq!(lhs_val, EvalResult::Float(a), "LHS value does not match expected");
@@ -298,7 +407,7 @@ mod tests {
 
                     // Example assertions (you'll need to replace these with actual logic to extract values from `lhs` and `rhs`)
                     // Dummy program for evaluation
-                    let context = Program::new();
+                    let context = Program::new(Vec::new());
 
                     let lhs_val = lhs.eval(&context).expect("A simple Expression::Value should not fail to evaluate");
                     assert_eq!(lhs_val, EvalResult::Float(a), "LHS value does not match expected");
@@ -322,7 +431,7 @@ mod tests {
 
                     // Example assertions (you'll need to replace these with actual logic to extract values from `lhs` and `rhs`)
                     // Dummy program for evaluation
-                    let context = Program::new();
+                    let context = Program::new(Vec::new());
 
                     let lhs_val = lhs.eval(&context).expect("A simple Expression::Value should not fail to evaluate");
                     assert_eq!(lhs_val, EvalResult::Float(a), "LHS value does not match expected");
@@ -345,7 +454,7 @@ mod tests {
 
                     // Example assertions (you'll need to replace these with actual logic to extract values from `lhs` and `rhs`)
                     // Dummy program for evaluation
-                    let context = Program::new();
+                    let context = Program::new(Vec::new());
 
                     let lhs_val = lhs.eval(&context).expect("A simple Expression::Value should not fail to evaluate");
                     assert_eq!(lhs_val, EvalResult::Float(a), "LHS value does not match expected");
@@ -368,7 +477,7 @@ mod tests {
 
                     // Example assertions (you'll need to replace these with actual logic to extract values from `lhs` and `rhs`)
                     // Dummy program for evaluation
-                    let context = Program::new();
+                    let context = Program::new(Vec::new());
 
                     let lhs_val = lhs.eval(&context).expect("A simple Expression::Value should not fail to evaluate");
                     assert_eq!(lhs_val, EvalResult::Float(a), "LHS value does not match expected");
@@ -392,7 +501,7 @@ mod tests {
 
                     // Example assertions (you'll need to replace these with actual logic to extract values from `lhs` and `rhs`)
                     // Dummy program for evaluation
-                    let context = Program::new();
+                    let context = Program::new(Vec::new());
 
                     let lhs_val = lhs.eval(&context).expect("A simple Expression::Value should not fail to evaluate");
                     assert_eq!(lhs_val, EvalResult::Float(a), "LHS value does not match expected");
@@ -415,7 +524,7 @@ mod tests {
 
                     // Example assertions (you'll need to replace these with actual logic to extract values from `lhs` and `rhs`)
                     // Dummy program for evaluation
-                    let context = Program::new();
+                    let context = Program::new(Vec::new());
 
                     let lhs_val = lhs.eval(&context).expect("A simple Expression::Value should not fail to evaluate");
                     assert_eq!(lhs_val, EvalResult::Bool(a), "LHS value does not match expected");
@@ -438,7 +547,7 @@ mod tests {
 
                     // Example assertions (you'll need to replace these with actual logic to extract values from `lhs` and `rhs`)
                     // Dummy program for evaluation
-                    let context = Program::new();
+                    let context = Program::new(Vec::new());
 
                     let lhs_val = lhs.eval(&context).expect("A simple Expression::Value should not fail to evaluate");
                     assert_eq!(lhs_val, EvalResult::Bool(a), "LHS value does not match expected");
@@ -461,7 +570,7 @@ mod tests {
 
                     // Example assertions (you'll need to replace these with actual logic to extract values from `lhs` and `rhs`)
                     // Dummy program for evaluation
-                    let context = Program::new();
+                    let context = Program::new(Vec::new());
 
                     let lhs_val = lhs.eval(&context).expect("A simple Expression::Value should not fail to evaluate");
                     assert_eq!(lhs_val, EvalResult::Bool(a), "LHS value does not match expected");
@@ -485,7 +594,7 @@ mod tests {
 
                     // Example assertions (you'll need to replace these with actual logic to extract values from `lhs` and `rhs`)
                     // Dummy program for evaluation
-                    let context = Program::new();
+                    let context = Program::new(Vec::new());
 
                     let lhs_val = lhs.eval(&context).expect("A simple Expression::Value should not fail to evaluate");
                     assert_eq!(lhs_val, EvalResult::Bool(a), "LHS value does not match expected");
