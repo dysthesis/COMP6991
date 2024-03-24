@@ -52,6 +52,7 @@ fn main() -> Result<()> {
         match crate::parsers::parse(Box::leak(file.to_string().into_boxed_str())) {
             Ok(res) => res,
             Err(e) => {
+                println!("{:?}", e);
                 let mut s = String::new();
                 GraphicalReportHandler::new()
                     .render_report(&mut s, &e)

@@ -1,10 +1,10 @@
 use nom::{
     branch::alt,
     bytes::complete::take_until,
-    character::complete::{alphanumeric1, multispace0, multispace1, space1},
+    character::complete::{alphanumeric1, multispace0},
     multi::many0,
     number::complete::float,
-    sequence::{delimited, preceded, separated_pair, tuple},
+    sequence::{delimited, preceded, separated_pair},
     IResult, Parser,
 };
 use nom_supreme::{error::ErrorTree, tag::complete::tag, ParserExt};
@@ -45,7 +45,7 @@ macro_rules! parse_query_expression {
 
 /// Macro to reduce boilerplate for parsing a verb
 macro_rules! command_parser {
-    ($tag:expr, $constructor:expr) => {
+    ($tag:expr, $constructor:path) => {
         tag($tag)
             .context(concat!("parsing as ", stringify!($tag)))
             .map(|_| $constructor as fn(Expression) -> Command)
@@ -76,21 +76,19 @@ fn parse_value_expression(input: Span) -> IResult<Span, Expression, ErrorTree<Sp
      */
     alt((
         float
-            .preceded_by(tag("\""))
             // Instead of a string, we want to return the corresponding enum instance
             .map(|res: f32| Expression::Value(EvalResult::Float(res)))
             .context("parsing literal value as float"),
         tag("TRUE")
-            .preceded_by(tag("\""))
             // The parsed value does not matter here. Rather, if the parser succeeds at all, we return an instance of the enum, disregarding the parsed string.
             .map(|_| Expression::Value(EvalResult::Bool(true)))
             .context("parsing literal value as boolean 'true'"),
         tag("FALSE")
-            .preceded_by(tag("\""))
             // The parsed value does not matter here. Rather, if the parser succeeds at all, we return an instance of the enum, disregarding the parsed string.
             .map(|_| Expression::Value(EvalResult::Bool(false)))
             .context("parsing literal value as boolean 'true'"),
     ))
+    .preceded_by(tag("\""))
     .context("parsing literal value")
     .parse(input)
 }
@@ -105,7 +103,7 @@ fn parse_value_expression(input: Span) -> IResult<Span, Expression, ErrorTree<Sp
 /// assert_eq!(parse_value_expression(Span::new("\"2.54")), Expression::Value(EvalResult::Float(2.54)))
 /// ```
 fn parse_variable_expression(input: Span) -> IResult<Span, Expression, ErrorTree<Span>> {
-    delimited(tag(":"), alphanumeric1, multispace1)
+    delimited(tag(":"), alphanumeric1, multispace0)
         // We want to return a token instead of the actual float
         .map(|res: Span| -> Expression {
             Expression::Variable(EvalResult::String(res.into_fragment().into()))
@@ -209,7 +207,7 @@ fn parse_single_expression_commands(input: Span) -> IResult<Span, Command, Error
     ))
     .context("parsing verb for a single expression command");
 
-    separated_pair(parse_verb, space1, parse_expression)
+    separated_pair(parse_verb, multispace0, parse_expression)
         .map(|(verb, expression)| verb(expression))
         .parse(input)
 }
@@ -223,16 +221,19 @@ fn parse_control_flow_commands(input: Span) -> IResult<Span, Command, ErrorTree<
 
     separated_pair(
         verb,
-        multispace1,
-        delimited(
-            tag("["),
-            separated_pair(parse_expression, multispace1, parse_commands_many)
-                .delimited_by(multispace0),
-            tag("]"),
+        multispace0,
+        separated_pair(
+            parse_expression,
+            multispace0,
+            delimited(
+                tag("["),
+                parse_commands_many.delimited_by(multispace0),
+                tag("]"),
+            ),
         ),
     )
     .context("parsing a control flow expression")
-    .map(|(verb, (arg0, arg1))| verb(arg0, arg1))
+    .map(|(verb, (conditions, commands))| verb(conditions, commands))
     .parse(input)
 }
 
@@ -241,8 +242,9 @@ fn parse_command_expression(input: Span) -> IResult<Span, Command, ErrorTree<Spa
         parse_comment,
         parse_pen_state_commands,
         parse_single_expression_commands,
+        parse_control_flow_commands,
     ))
-    .cut()
+    .cut() // This is apparently necessary to get proper error messages from nom
     .delimited_by(multispace0)
     .context("parsing command")
     .parse(input)
