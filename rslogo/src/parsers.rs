@@ -21,7 +21,8 @@ macro_rules! parse_operation_expression {
         fn $fn_name(input: Span) -> IResult<Span, Expression, ErrorTree<Span>> {
             preceded(
                 tag($op),
-                separated_pair(parse_expression, multispace1, parse_expression).preceded_by(space1),
+                separated_pair(parse_expression, multispace0, parse_expression)
+                    .preceded_by(multispace0),
             )
             .map(|(lhs, rhs)| $constructor(Box::new(lhs), Box::new(rhs)))
             .context(concat!("when parsing ", stringify!($op), " expression"))
