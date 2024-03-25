@@ -134,19 +134,24 @@ impl Expression {
     pub fn eval(&self, context: &Program) -> Result<EvalResult, InterpreterError> {
         match self {
             Expression::Value(value) => Ok(value.clone()),
-            Expression::Variable(name) => Ok(name.clone()),
+            Expression::Variable(name) => match name {
+                EvalResult::Bool(_) => {
+                    Err(InterpreterError::invalid_type("variable name", "boolean"))
+                }
+                EvalResult::Float(_) => {
+                    Err(InterpreterError::invalid_type("variable name", "float"))
+                }
+                EvalResult::String(res) => Ok(EvalResult::String(res.to_owned())),
+            },
             Expression::GetVariable(key) => {
-                let variable_name: String = match key.eval(context) {
-                    Ok(name) => match name {
-                        EvalResult::Bool(_) => {
-                            return Err(InterpreterError::invalid_type("variable name", "boolean"))
-                        }
-                        EvalResult::Float(_) => {
-                            return Err(InterpreterError::invalid_type("variable name", "float"))
-                        }
-                        EvalResult::String(name) => name,
-                    },
-                    Err(_) => todo!("Make error for unsuccessful evaluation"),
+                let variable_name: String = match key.eval(context)? {
+                    EvalResult::Bool(_) => {
+                        return Err(InterpreterError::invalid_type("variable name", "boolean"))
+                    }
+                    EvalResult::Float(_) => {
+                        return Err(InterpreterError::invalid_type("variable name", "float"))
+                    }
+                    EvalResult::String(name) => name,
                 };
 
                 match context.variables.get(&variable_name) {
@@ -196,7 +201,7 @@ impl Expression {
 }
 
 /// This is a list of executable commands for the logo language. They may take in strings, Expressions, or vectors of Commands as argument
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub(crate) enum Command {
     Comment,
     /// Command to set the pen state to up.
@@ -233,10 +238,10 @@ pub(crate) enum Command {
     SetY(Expression),
 
     /// Command to create a new variable.
-    MakeVariable(String, Expression),
+    MakeVariable(Expression, Expression),
 
     /// Command to increment the value of an existing variable by a certain number. Will not work if the variable does not exist yet.
-    SetVariable(String, Expression),
+    Increment(Expression, Expression),
 
     /// Command to execute a set of commands only if an expression evaluates to true
     If(Expression, Vec<Command>),
@@ -398,20 +403,90 @@ impl Command {
 
             // Variable manipulation
             Command::MakeVariable(name, value) => {
+                let name = match name.eval(context)? {
+                    EvalResult::Bool(_) => {
+                        return Err(Box::new(InterpreterError::invalid_type(
+                            "variable name",
+                            "bool",
+                        )))
+                    }
+                    EvalResult::Float(_) => {
+                        return Err(Box::new(InterpreterError::invalid_type(
+                            "variable name",
+                            "float",
+                        )))
+                    }
+                    EvalResult::String(x) => x,
+                };
                 context
                     .variables
                     .insert(name.to_owned(), value.eval(context)?);
                 Ok(())
             }
-            Command::SetVariable(name, value) => match context.variables.contains_key(name) {
-                true => {
-                    context
-                        .variables
-                        .insert(name.to_owned(), value.eval(context)?);
-                    Ok(())
+            Command::Increment(name, value) => {
+                let name: String = match name.eval(context)? {
+                    EvalResult::Bool(_) => {
+                        return Err(Box::new(InterpreterError::invalid_type(
+                            "variable name",
+                            "bool",
+                        )))
+                    }
+                    EvalResult::Float(_) => {
+                        return Err(Box::new(InterpreterError::invalid_type(
+                            "variable name",
+                            "float",
+                        )))
+                    }
+                    EvalResult::String(x) => x,
+                };
+                match context.variables.contains_key(&name) {
+                    true => {
+                        let incremented = match context.variables.get(&name) {
+                            Some(res) => match res {
+                                EvalResult::Bool(_) => {
+                                    return Err(Box::new(InterpreterError::invalid_type(
+                                        "increment target",
+                                        "boolean",
+                                    )))
+                                }
+                                EvalResult::Float(res) => {
+                                    let increment_value: f32 = match value.eval(context)? {
+                                        EvalResult::Bool(_) => {
+                                            return Err(Box::new(InterpreterError::invalid_type(
+                                                "incrementing a float",
+                                                "boolean",
+                                            )))
+                                        }
+                                        EvalResult::Float(val) => val,
+                                        EvalResult::String(_) => {
+                                            return Err(Box::new(InterpreterError::invalid_type(
+                                                "incrementint a float",
+                                                "string",
+                                            )))
+                                        }
+                                    };
+
+                                    EvalResult::Float(res + increment_value)
+                                }
+                                EvalResult::String(_) => {
+                                    return Err(Box::new(InterpreterError::invalid_type(
+                                        "increment target",
+                                        "string",
+                                    )))
+                                }
+                            },
+                            None => {
+                                return Err(Box::new(InterpreterError::unsuccessful_operation(
+                                    "fetching value to increment",
+                                )))
+                            }
+                        };
+                        context.variables.insert(name, incremented);
+                        Ok(())
+                    }
+                    false => Err(Box::new(InterpreterError::undefined_var(name.as_str()))),
                 }
-                false => Err(Box::new(InterpreterError::undefined_var(name))),
-            },
+            }
 
             // Control flow
             Command::If(expression, commands) => match expression.eval(context)? {

@@ -3,7 +3,7 @@ mod parsers;
 mod tokens;
 mod turtle;
 
-use std::{borrow::Borrow, path::PathBuf};
+use std::{path::PathBuf};
 
 use clap::Parser;
 // use unsvg::Image;

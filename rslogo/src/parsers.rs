@@ -1,7 +1,7 @@
 use nom::{
     branch::alt,
-    bytes::complete::take_until,
-    character::complete::{alphanumeric1, multispace0},
+    bytes::complete::{take_till, take_until},
+    character::complete::multispace0,
     multi::many0,
     number::complete::float,
     sequence::{delimited, preceded, separated_pair},
@@ -31,7 +31,7 @@ macro_rules! parse_operation_expression {
     };
 }
 
-/// Macro to reduce boilerplate for single-keyword queries
+/// Macro to reduce boilerplate for argument-less queries
 macro_rules! parse_query_expression {
     ($fn_name:ident, $op:expr, $context:expr, $constructor:path) => {
         fn $fn_name(input: Span) -> IResult<Span, Expression, ErrorTree<Span>> {
@@ -49,6 +49,14 @@ macro_rules! command_parser {
         tag($tag)
             .context(concat!("parsing as ", stringify!($tag)))
             .map(|_| $constructor as fn(Expression) -> Command)
+    };
+}
+
+macro_rules! variable_command_parser {
+    ($tag:expr, $constructor:path) => {
+        tag($tag)
+            .context(concat!("parsing as ", stringify!($tag)))
+            .map(|_| $constructor as fn(Expression, Expression) -> Command)
     };
 }
 /// Macro to reduce boilerplate for parsing a verb
@@ -75,6 +83,7 @@ fn parse_value_expression(input: Span) -> IResult<Span, Expression, ErrorTree<Sp
      * them as strings, using tag.
      */
     alt((
+        // parse number
         float
             // Instead of a string, we want to return the corresponding enum instance
             .map(|res: f32| Expression::Value(EvalResult::Float(res)))
@@ -87,6 +96,12 @@ fn parse_value_expression(input: Span) -> IResult<Span, Expression, ErrorTree<Sp
             // The parsed value does not matter here. Rather, if the parser succeeds at all, we return an instance of the enum, disregarding the parsed string.
             .map(|_| Expression::Value(EvalResult::Bool(false)))
             .context("parsing literal value as boolean 'true'"),
+        // Parse variable name
+        take_till(|c: char| -> bool { c == ' ' || c == '"' || c == '\n' })
+            .map(|name: Span| {
+                Expression::Value(EvalResult::String(name.into_fragment().to_owned()))
+            })
+            .context("parsing variable name"),
     ))
     .preceded_by(tag("\""))
     .context("parsing literal value")
@@ -102,15 +117,21 @@ fn parse_value_expression(input: Span) -> IResult<Span, Expression, ErrorTree<Sp
 /// assert_eq!(parse_value_expression(Span::new("\"FALSE")), Expression::Value(EvalResult::Bool(false)));
 /// assert_eq!(parse_value_expression(Span::new("\"2.54")), Expression::Value(EvalResult::Float(2.54)))
 /// ```
-fn parse_variable_expression(input: Span) -> IResult<Span, Expression, ErrorTree<Span>> {
-    delimited(tag(":"), alphanumeric1, multispace0)
-        // We want to return a token instead of the actual float
-        .map(|res: Span| -> Expression {
-            Expression::Variable(EvalResult::String(res.into_fragment().into()))
-        })
-        // Additional context for error messages
-        .context("parsing variable")
-        .parse(input)
+fn parse_getvariable_expression(input: Span) -> IResult<Span, Expression, ErrorTree<Span>> {
+    delimited(
+        tag(":"),
+        take_till(|c: char| -> bool { c == ' ' || c == '"' || c == '\n' }),
+        multispace0,
+    )
+    // We want to return a token instead of the actual float
+    .map(|res: Span| -> Expression {
+        Expression::GetVariable(Box::new(Expression::Variable(EvalResult::String(
+            res.into_fragment().into(),
+        ))))
+    })
+    // Additional context for error messages
+    .context("parsing variable")
+    .parse(input)
 }
 
 parse_query_expression!(
@@ -159,7 +180,7 @@ parse_operation_expression!(parse_or_expression, "OR", Expression::Or);
 fn parse_expression(input: Span) -> IResult<Span, Expression, ErrorTree<Span>> {
     alt((
         parse_value_expression,
-        parse_variable_expression,
+        parse_getvariable_expression,
         parse_addition_expression,
         parse_subtraction_expression,
         parse_multiplication_expression,
@@ -175,6 +196,7 @@ fn parse_expression(input: Span) -> IResult<Span, Expression, ErrorTree<Span>> {
         parse_colour_expression,
         parse_heading_expression,
     ))
+    .cut()
     .delimited_by(multispace0)
     .context("parsing expression")
     .parse(input)
@@ -212,6 +234,22 @@ fn parse_single_expression_commands(input: Span) -> IResult<Span, Command, Error
         .parse(input)
 }
 
+fn parse_variable_manipulation_commands(input: Span) -> IResult<Span, Command, ErrorTree<Span>> {
+    let parse_verb = alt((
+        variable_command_parser!("MAKE", Command::MakeVariable),
+        variable_command_parser!("ADDASSIGN", Command::Increment),
+    ))
+    .context("parsing verb for a variable manipulation command");
+
+    separated_pair(
+        parse_verb,
+        multispace0,
+        separated_pair(parse_expression, multispace0, parse_expression),
+    )
+    .map(|(verb, (name, val))| verb(name, val))
+    .parse(input)
+}
+
 fn parse_control_flow_commands(input: Span) -> IResult<Span, Command, ErrorTree<Span>> {
     let verb = alt((
         control_flow_parser!("IF", Command::If),
@@ -219,17 +257,22 @@ fn parse_control_flow_commands(input: Span) -> IResult<Span, Command, ErrorTree<
     ))
     .context("parsing verb for a control flow command");
 
+    let commands = many0(parse_command_expression)
+        .all_consuming()
+        .context("parsing commands inside a control flow body");
+
     separated_pair(
         verb,
         multispace0,
         separated_pair(
-            parse_expression,
+            parse_expression.context("parsing condition for a control flow expression"),
             multispace0,
             delimited(
-                tag("["),
-                parse_commands_many.delimited_by(multispace0),
-                tag("]"),
-            ),
+                tag("[").context("parsing opening delimiter for a control flow expression"),
+                commands.context("parsing commands inside control flow expression"),
+                tag("]").context("parsing closing delimiters for a control flow expression"),
+            )
+            .context("parsing body of a control flow expression"),
         ),
     )
     .context("parsing a control flow expression")
@@ -243,6 +286,7 @@ fn parse_command_expression(input: Span) -> IResult<Span, Command, ErrorTree<Spa
         parse_pen_state_commands,
         parse_single_expression_commands,
         parse_control_flow_commands,
+        parse_variable_manipulation_commands,
     ))
     .cut() // This is apparently necessary to get proper error messages from nom
     .delimited_by(multispace0)
@@ -269,11 +313,14 @@ fn parse_commands_many(input: Span) -> IResult<Span, Vec<Command>, ErrorTree<Spa
 pub fn parse(input: &str) -> Result<Vec<Command>, ParseError> {
     match parse_commands_many(Span::new(input)) {
         Ok((_, res)) => Ok(res),
-        Err(e) => match e {
-            nom::Err::Incomplete(_) => unreachable!("We're not using streaming parsers"),
-            nom::Err::Error(e) => Err(format_parse_error(input, e)),
-            nom::Err::Failure(e) => Err(format_parse_error(input, e)),
-        },
+        Err(e) => {
+            println!("{:?}", e);
+            match e {
+                nom::Err::Incomplete(_) => unreachable!("We're not using streaming parsers"),
+                nom::Err::Error(e) => Err(format_parse_error(input, e)),
+                nom::Err::Failure(e) => Err(format_parse_error(input, e)),
+            }
+        }
     }
 }
 
@@ -283,6 +330,73 @@ mod tests {
 
     use super::*;
     use proptest::prelude::*;
+
+    #[test]
+    fn pen_commands_shouldnt_consume_anything_else() {
+        let input = "PENDOWNextra";
+
+        let (remainder, res): (Span, Command) =
+            parse_pen_state_commands(Span::new(input)).expect("This should be valid");
+        assert_eq!(
+            (remainder.into_fragment(), res),
+            ("extra", Command::PenDown)
+        );
+    }
+
+    #[test]
+    fn parse_value() {
+        let input = "\"100";
+        let (_, res) = parse_value_expression(Span::new(input)).expect("This should be valid");
+        assert_eq!(res, Expression::Value(EvalResult::Float(100.0)));
+
+        let input = "\"TRUE";
+        let (_, res) = parse_value_expression(Span::new(input)).expect("This should be valid");
+        assert_eq!(res, Expression::Value(EvalResult::Bool(true)));
+
+        let input = "\"var_name1";
+        let (_, res) = parse_value_expression(Span::new(input)).expect("This should be valid");
+        assert_eq!(
+            res,
+            Expression::Value(EvalResult::String(String::from("var_name1")))
+        );
+    }
+
+    #[test]
+    fn parse_recursive_expression() {
+        let input = "EQ + \"1 \"1 \"2";
+        let (_, res) = parse_expression(Span::new(input)).unwrap();
+        assert_eq!(
+            res,
+            Expression::Equals(
+                Box::new(Expression::Add(
+                    Box::new(Expression::Value(EvalResult::Float(1.0))),
+                    Box::new(Expression::Value(EvalResult::Float(1.0)))
+                )),
+                Box::new(Expression::Value(EvalResult::Float(2.0)))
+            )
+        )
+    }
+    #[test]
+    fn conditional() {
+        let input = "IF EQ + \"1 \"1 \"2 [PENUP\nFORWARD \"50\nPENDOWN\n]";
+        let expected = Command::If(
+            Expression::Equals(
+                Box::new(Expression::Add(
+                    Box::new(Expression::Value(EvalResult::Float(1.0))),
+                    Box::new(Expression::Value(EvalResult::Float(1.0))),
+                )),
+                Box::new(Expression::Value(EvalResult::Float(2.0))),
+            ),
+            vec![
+                Command::PenUp,
+                Command::Forward(Expression::Value(EvalResult::Float(50.0))),
+                Command::PenDown,
+            ],
+        );
+        let (_, result) =
+            parse_control_flow_commands(Span::new(input)).expect("This should be valid syntax");
+        assert_eq!(result, expected);
+    }
 
     macro_rules! float_operations_strategy {
         ($fn:ident, $op:expr) => {
