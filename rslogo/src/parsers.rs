@@ -1,7 +1,7 @@
 use nom::{
     branch::alt,
     bytes::complete::{take_till, take_until},
-    character::complete::multispace0,
+    character::complete::{char, multispace0},
     multi::many0,
     number::complete::float,
     sequence::{delimited, preceded, separated_pair},
@@ -67,6 +67,7 @@ macro_rules! control_flow_parser {
             .map(|_| $constructor as fn(Expression, Vec<Command>) -> Command)
     };
 }
+
 /// Parse the given input as a literal value. This will return an instance of `Expression::Value`
 /// A literal value must be preceeded by a double quote (`"`).
 ///
@@ -257,7 +258,7 @@ fn parse_control_flow_commands(input: Span) -> IResult<Span, Command, ErrorTree<
     ))
     .context("parsing verb for a control flow command");
 
-    let commands = many0(parse_command_expression)
+    let commands = parse_commands_many
         .all_consuming()
         .context("parsing commands inside a control flow body");
 
@@ -288,7 +289,6 @@ fn parse_command_expression(input: Span) -> IResult<Span, Command, ErrorTree<Spa
         parse_control_flow_commands,
         parse_variable_manipulation_commands,
     ))
-    .cut() // This is apparently necessary to get proper error messages from nom
     .delimited_by(multispace0)
     .context("parsing command")
     .parse(input)
@@ -296,7 +296,8 @@ fn parse_command_expression(input: Span) -> IResult<Span, Command, ErrorTree<Spa
 
 fn parse_commands_many(input: Span) -> IResult<Span, Vec<Command>, ErrorTree<Span>> {
     many0(parse_command_expression)
-        .map(|res| {
+        // Ignore comments
+        .map(|res: Vec<Command>| -> Vec<Command> {
             res.into_par_iter()
                 .filter_map(|x: Command| -> Option<Command> {
                     match x {
@@ -306,12 +307,16 @@ fn parse_commands_many(input: Span) -> IResult<Span, Vec<Command>, ErrorTree<Spa
                 })
                 .collect()
         })
-        .all_consuming()
         .parse(input)
 }
 
 pub fn parse(input: &str) -> Result<Vec<Command>, ParseError> {
-    match parse_commands_many(Span::new(input)) {
+    // Cut is necessary to get full backtrace
+    match parse_commands_many
+        .cut()
+        .all_consuming()
+        .parse(Span::new(input))
+    {
         Ok((_, res)) => Ok(res),
         Err(e) => {
             println!("{:?}", e);
@@ -343,6 +348,36 @@ mod tests {
         );
     }
 
+    #[test]
+    fn tolerate_whitespace() {
+        let input: &str = "  PENUP  ";
+        let expected: Command = Command::PenUp;
+        let (_, res): (_, Command) =
+            parse_command_expression(Span::new(input)).expect("valid syntax");
+        assert_eq!(res, expected);
+        let input: &str = "\nPENUP\n";
+        let expected: Command = Command::PenUp;
+        let (_, res): (_, Command) =
+            parse_command_expression(Span::new(input)).expect("valid syntax");
+        assert_eq!(res, expected);
+        let input: &str = "\nPENUP\n\nPENDOWN\n";
+        let expected: Vec<Command> = vec![Command::PenUp, Command::PenDown];
+        let (_, res): (_, Vec<Command>) =
+            parse_commands_many(Span::new(input)).expect("valid syntax");
+        assert_eq!(res, expected);
+    }
+    #[test]
+    fn multiple() {
+        let input: &str = "PENUP\nFORWARD \"10\nPENDOWN";
+        let expected: Vec<Command> = vec![
+            Command::PenUp,
+            Command::Forward(Expression::Value(EvalResult::Float(10.0))),
+            Command::PenDown,
+        ];
+        let (_, res): (_, Vec<Command>) =
+            parse_commands_many(Span::new(input)).expect("valid syntax");
+        assert_eq!(res, expected);
+    }
     #[test]
     fn parse_value() {
         let input = "\"100";
