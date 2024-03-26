@@ -258,9 +258,7 @@ fn parse_control_flow_commands(input: Span) -> IResult<Span, Command, ErrorTree<
     ))
     .context("parsing verb for a control flow command");
 
-    let commands = parse_commands_many
-        .all_consuming()
-        .context("parsing commands inside a control flow body");
+    let commands = parse_commands_many.context("parsing commands inside a control flow body");
 
     separated_pair(
         verb,
@@ -311,17 +309,22 @@ fn parse_commands_many(input: Span) -> IResult<Span, Vec<Command>, ErrorTree<Spa
 }
 
 pub fn parse(input: &str) -> Result<Vec<Command>, ParseError> {
-    // Cut is necessary to get full backtrace
     match parse_commands_many
+        // Cut is necessary to get full backtrace
         .cut()
+        // Throw an error if there are any unparsed strings
         .all_consuming()
         .parse(Span::new(input))
     {
         Ok((_, res)) => Ok(res),
         Err(e) => {
-            println!("{:?}", e);
             match e {
+                // In nom, Incomplete represents a parse that is unsuccessful due to a lack of information,
+                // usually in the context of streaming parsers. It's the parser's way of saying "I can't
+                // determine what this is, I need more information please." We already have all the information
+                // we'll ever get from the start, so this error should never occur
                 nom::Err::Incomplete(_) => unreachable!("We're not using streaming parsers"),
+                // For the other two errors that may actually happen, we want to format them for miette to use.
                 nom::Err::Error(e) => Err(format_parse_error(input, e)),
                 nom::Err::Failure(e) => Err(format_parse_error(input, e)),
             }

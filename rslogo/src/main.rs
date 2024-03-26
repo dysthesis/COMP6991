@@ -3,7 +3,7 @@ mod parsers;
 mod tokens;
 mod turtle;
 
-use std::{path::PathBuf};
+use std::path::PathBuf;
 
 use clap::Parser;
 // use unsvg::Image;
@@ -64,6 +64,7 @@ fn main() -> Result<()> {
 
     let program: Program = Program::new(commands);
 
+    println!("{:?}", file);
     println!("{:?}", program.commands);
 
     // There should be no remainder string from the parser. This should be ensured by nom's all_consuming
