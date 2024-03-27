@@ -261,7 +261,7 @@ fn parse_control_flow_commands(input: Span) -> IResult<Span, Command, ErrorTree<
     ))
     .context("parsing verb for a control flow command");
 
-    let commands = parse_commands_many.context("parsing commands inside a control flow body");
+    let commands = parse_commands_many;
 
     separated_pair(
         verb,
@@ -360,6 +360,7 @@ fn parse_commands_many(input: Span) -> IResult<Span, Vec<Command>, ErrorTree<Spa
                 })
                 .collect()
         })
+        .cut()
         .context("parsing multiple commands")
         .parse(input)
 }
