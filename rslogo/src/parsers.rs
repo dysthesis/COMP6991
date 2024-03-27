@@ -1,7 +1,7 @@
 use nom::{
     branch::alt,
-    bytes::complete::{take_till, take_until, take_while},
-    character::complete::{char, multispace0},
+    bytes::complete::{take_till, take_until},
+    character::complete::multispace0,
     multi::{many0, many_till},
     number::complete::float,
     sequence::{delimited, preceded, separated_pair, tuple},
@@ -89,10 +89,12 @@ fn parse_value_expression(input: Span) -> IResult<Span, Expression, ErrorTree<Sp
             // Instead of a string, we want to return the corresponding enum instance
             .map(|res: f32| Expression::Value(EvalResult::Float(res)))
             .context("parsing literal value as float"),
+        // Parse 'true' boolean
         tag("TRUE")
             // The parsed value does not matter here. Rather, if the parser succeeds at all, we return an instance of the enum, disregarding the parsed string.
             .map(|_| Expression::Value(EvalResult::Bool(true)))
             .context("parsing literal value as boolean 'true'"),
+        // Parse 'false' bolean
         tag("FALSE")
             // The parsed value does not matter here. Rather, if the parser succeeds at all, we return an instance of the enum, disregarding the parsed string.
             .map(|_| Expression::Value(EvalResult::Bool(false)))
@@ -104,6 +106,7 @@ fn parse_value_expression(input: Span) -> IResult<Span, Expression, ErrorTree<Sp
             })
             .context("parsing variable name"),
     ))
+    // The specifications for the Logo language requires that a value be preceeded by a singular double-quote
     .preceded_by(tag("\""))
     .context("parsing literal value")
     .parse(input)
@@ -280,22 +283,24 @@ fn parse_control_flow_commands(input: Span) -> IResult<Span, Command, ErrorTree<
 }
 
 fn parse_procedure(input: Span) -> IResult<Span, Command, ErrorTree<Span>> {
-    let verb = tag("TO").context("parsing verb TO indicating a procedure");
-    let name = take_till(|c| c == ' ' || c == '\n');
-    let arguments = many_till(parse_value_expression, multispace0);
+    let (remainder, _): (Span, _) = tag("TO").parse(input)?;
+    let (remainder, name): (Span, Span) = take_till(|c: char| c == ' ' || c == '\n')
+        .preceded_by(multispace0)
+        .parse(remainder)?;
+    let (remainder, args): (Span, Vec<Expression>) = many0(parse_value_expression)
+        .delimited_by(multispace0)
+        .parse(remainder)?;
+    let (remainder, commands): (Span, Vec<Command>) = parse_commands_many(remainder)?;
+    let (remainder, _): (Span, _) = tag("END").parse(remainder)?;
 
-    let commands = parse_commands_many.context("parsing commands inside a control flow body");
-    let heading = separated_pair(
-        verb,
-        multispace0,
-        separated_pair(name, multispace0, arguments),
-    );
-    let terminator = tag("END").delimited_by(multispace0);
-
-    tuple((heading, commands, terminator))
-        .context("parsing a procedure")
-        .map(|(a, b, c)| Command::PenUp)
-        .parse(input)
+    Ok((
+        remainder,
+        Command::ProcedureDefine(
+            Expression::Value(EvalResult::String(name.to_string())),
+            args,
+            commands,
+        ),
+    ))
 }
 
 fn parse_command_expression(input: Span) -> IResult<Span, Command, ErrorTree<Span>> {
