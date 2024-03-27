@@ -1,10 +1,10 @@
 use nom::{
     branch::alt,
-    bytes::complete::{take_till, take_until},
+    bytes::complete::{take_till, take_until, take_while},
     character::complete::{char, multispace0},
-    multi::many0,
+    multi::{many0, many_till},
     number::complete::float,
-    sequence::{delimited, preceded, separated_pair},
+    sequence::{delimited, preceded, separated_pair, tuple},
     IResult, Parser,
 };
 use nom_supreme::{error::ErrorTree, tag::complete::tag, ParserExt};
@@ -277,6 +277,25 @@ fn parse_control_flow_commands(input: Span) -> IResult<Span, Command, ErrorTree<
     .context("parsing a control flow expression")
     .map(|(verb, (conditions, commands))| verb(conditions, commands))
     .parse(input)
+}
+
+fn parse_procedure(input: Span) -> IResult<Span, Command, ErrorTree<Span>> {
+    let verb = tag("TO").context("parsing verb TO indicating a procedure");
+    let name = take_till(|c| c == ' ' || c == '\n');
+    let arguments = many_till(parse_value_expression, multispace0);
+
+    let commands = parse_commands_many.context("parsing commands inside a control flow body");
+    let heading = separated_pair(
+        verb,
+        multispace0,
+        separated_pair(name, multispace0, arguments),
+    );
+    let terminator = tag("END").delimited_by(multispace0);
+
+    tuple((heading, commands, terminator))
+        .context("parsing a procedure")
+        .map(|(a, b, c)| Command::PenUp)
+        .parse(input)
 }
 
 fn parse_command_expression(input: Span) -> IResult<Span, Command, ErrorTree<Span>> {

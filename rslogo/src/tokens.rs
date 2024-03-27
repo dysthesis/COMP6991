@@ -1,8 +1,10 @@
+use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
+
 use crate::errors::InterpreterError;
 use crate::turtle::Turtle;
-use rayon::prelude::*;
 use std::collections::HashMap;
 use std::error::Error;
+
 use std::ops::{Add, Div, Mul, Sub};
 /// Macro to reduce boilerplate for arithmetic expressions
 macro_rules! arithmetic_operation {
@@ -69,7 +71,7 @@ pub(crate) enum EvalResult {
 /// let rhs = Expression::Value(EvalResult::Float(2));
 /// assert_eq!(Expression::Add(lhs, rhs), EvalResult::Float(3));
 /// ```
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) enum Expression {
     /// The most fundamental expression, a value, denoted by a double quote (`"`)
     /// followed by a literal value (either a float, or a boolean).
@@ -201,7 +203,7 @@ impl Expression {
 }
 
 /// This is a list of executable commands for the logo language. They may take in strings, Expressions, or vectors of Commands as argument
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) enum Command {
     Comment,
     /// Command to set the pen state to up.
@@ -249,9 +251,11 @@ pub(crate) enum Command {
     /// Command to repeatedly execute a set of command as long as an expression evaluates to true
     While(Expression, Vec<Command>),
 
-    /// A set of commands (`Vec<Command>`) with its own parameters (`HashMap<String, Expression>`).
-    /// The variables are global. The hashmap will be merged with the global variables hashmap
-    Procedure(HashMap<String, Expression>, Vec<Command>),
+    ProcedureDefine(Expression, Vec<Expression>, Vec<Command>),
+    ProcedureBase(Vec<Expression>, Vec<Command>),
+
+    /// An executable procedure
+    ProcedureExec(String, Vec<Expression>),
 }
 
 impl Command {
@@ -579,45 +583,181 @@ impl Command {
                     "string",
                 ))),
             },
+            Command::ProcedureDefine(name, parameters, commands) => {
+                let procedure_name: String = match name.eval(context)? {
+                    EvalResult::Bool(_) => {
+                        return Err(Box::new(InterpreterError::invalid_type(
+                            "procedure name",
+                            "boolean",
+                        )))
+                    }
+                    EvalResult::Float(_) => {
+                        return Err(Box::new(InterpreterError::invalid_type(
+                            "procedure name",
+                            "float",
+                        )))
+                    }
+                    EvalResult::String(val) => val,
+                };
+                let procedure: Command =
+                    Command::ProcedureBase(parameters.to_vec(), commands.to_vec());
+                context.add_procedure(procedure_name, procedure)?;
+                Ok(())
+            }
+            Command::ProcedureBase(_, _) => Err(Box::new(InterpreterError::unsupported_operation(
+                "executing a base procedure without defining parameter values",
+            ))),
+            Command::ProcedureExec(name, parameter_values) => {
+                let (parameter_names, commands) = match context.get_procedure(name)? {
+                    Command::ProcedureBase(parameter_names, commands) => {
+                        // Apparently, to_owned is necessary, as a shared borrow of Vec<Command> means that the .map() in the commands execution causes the borrow checker to freak out?
+                        // I think it was because returning an immutable reference for the vector of commands means that the mutable reference to context (in the above `match context.get_procedure()`
+                        // invocation) never gets dropped? Not sure why, though.
+                        (parameter_names, commands.to_owned())
+                    }
+                    _ => {
+                        return Err(Box::new(InterpreterError::invalid_type(
+                            "procedure",
+                            "not ProcedureBase",
+                        )));
+                    }
+                };
 
-            Command::Procedure(parameters, commands) => {
-                /*
-                 * Since procedure parameters must be global variables as well, we need to merge the `parameters`
-                 * hash map with the `context.variables` hash map. However, `context.variables` is of type
-                 * `HashMap<String, EvalResult>`, whereas `parameters` is of type `HashMap<String, Expression>`.
-                 * Therefore, we need to evaluate these expressions before merging the hashmaps.
-                 */
-                let evaluated_parameters: HashMap<String, EvalResult> = parameters
+                let (evaluated_name, name_evaluation_errors) = parameter_names
+                    .par_iter()
+                    // Evaluate each of the expressions in the vector
+                    .map(|x| x.eval(context))
+                    // Parameter names can only be a string, so map floats and booleans to an error
+                    .map(|y: Result<EvalResult, InterpreterError>| -> Result<String, InterpreterError> {
+                        match y {
+                            Ok(val) => match val {
+                                EvalResult::Bool(_) => Err(InterpreterError::invalid_type(
+                                    "procedure parameter name",
+                                    "boolean",
+                                )),
+                                EvalResult::Float(_) => Err(InterpreterError::invalid_type("procedure parameter name", "float")),
+                                EvalResult::String(res) => Ok(res),
+                            },
+                            Err(e) => Err(e),
+                        }})
+                    .fold(
+                        || (Vec::new(), Vec::new()), // Closure that returns a new accumulator for each thread
+                        |mut acc, result| {
+                            // The accumulator and the current item from the iteration
+                            match result {
+                                Ok(ok) => acc.0.push(ok), // If the result is Ok, push it into the first vector
+                                Err(err) => acc.1.push(err), // If the result is Err, push it into the second vector
+                            };
+                            acc // Return the updated accumulator for the next iteration or combination
+                        },
+                    )
+                    .reduce(
+                        || (Vec::new(), Vec::new()), // Identity value for the combination process
+                        |mut acc1, acc2| {
+                            // acc1 is the accumulator being built, acc2 is from another thread
+                            acc1.0.extend(acc2.0); // Extend the first vector of acc1 with the first vector of acc2
+                            acc1.1.extend(acc2.1); // Extend the second vector of acc1 with the second vector of acc2
+                            acc1 // Return the combined accumulator
+                        },
+                    );
+
+                if !name_evaluation_errors.is_empty() {
+                    return Err(Box::new(
+                        name_evaluation_errors
+                            .first()
+                            .expect(
+                                "we checked that the `name_evaluation_errors` vector is not empty",
+                            )
+                            .clone(),
+                    ));
+                }
+
+                let (evaluated_params, params_evaluation_errors) = parameter_values
+                    .par_iter()
+                    // Evaluate each of the expressions in the vector
+                    .map(|x| x.eval(context))
+                    // Separate the result into two vectors, depending on whether or not they were successful
+                    .fold(
+                        || (Vec::new(), Vec::new()), // Closure that returns a new accumulator for each thread
+                        |mut acc, result| {
+                            // The accumulator and the current item from the iteration
+                            match result {
+                                Ok(ok) => acc.0.push(ok), // If the result is Ok, push it into the first vector
+                                Err(err) => acc.1.push(err), // If the result is Err, push it into the second vector
+                            };
+                            acc // Return the updated accumulator for the next iteration or combination
+                        },
+                    )
+                    // Join tgether the results of the different threads
+                    .reduce(
+                        || (Vec::new(), Vec::new()), // Identity value for the combination process
+                        |mut acc1, acc2| {
+                            // acc1 is the accumulator being built, acc2 is from another thread
+                            acc1.0.extend(acc2.0); // Extend the first vector of acc1 with the first vector of acc2
+                            acc1.1.extend(acc2.1); // Extend the second vector of acc1 with the second vector of acc2
+                            acc1 // Return the combined accumulator
+                        },
+                    );
+
+                // Check if there were any issues when evaluating the parameter values. If so, terminate early.
+                if !params_evaluation_errors.is_empty() {
+                    return Err(Box::new(
+                        params_evaluation_errors
+                            .first()
+                            .expect(
+                                "we checked that the `params_evaluation_errors` vector is not empty",
+                            )
+                            .clone(),
+                    ));
+                }
+
+                // You can use rayon's parallel iterators here, but it's going to involve mutexes and whatnot
+                // We don't really care about the successful return values of the insertion, only the errors
+                let insertion_errors: Vec<InterpreterError> = evaluated_name
                     .iter()
-                    .try_fold(HashMap::new(), |mut acc, (key, val)| -> Result<HashMap<String, EvalResult>, Box<InterpreterError>> {
-                        match val.eval(context) {
-                            Ok(res) => {
-                                acc.insert(key.to_owned(), res);
-                                Ok(acc)
-                            }
-                            Err(e) => Err(Box::new(e)),
-                        }
-                    })?;
-
-                // Now that the expressions are evaluated, we can merge it with `context.variables`
-                context.variables.extend(evaluated_parameters);
-
-                // Iterate through the vector of commands and collect any execution errors
-                let errors: Vec<Result<(), Box<dyn Error>>> = commands
-                    .iter()
-                    .map(|x: &Command| -> Result<(), Box<dyn Error>> { x.execute(context) })
-                    .filter(|x: &Result<(), Box<dyn Error>>| x.is_err())
+                    .zip(evaluated_params)
+                    // Insert the key-value pairs and collect the results
+                    .map(|(key, val): (&String, EvalResult)| {
+                        context.insert_var(key.to_string(), val)
+                    })
+                    // Filter for only errors, as the successful operations do not matter
+                    .filter(|x: &Result<(), InterpreterError>| x.is_err())
+                    // Extract the actual error from the result type
+                    .map(|y: Result<(), InterpreterError>| {
+                        y.expect_err("we have previously filtered for errors")
+                    })
                     .collect();
 
-                match errors.is_empty() {
-                    // Procedure terminated successfully
-                    true => Ok(()),
-
-                    // Procedure failed
-                    false => Err(Box::new(InterpreterError::unsuccessful_operation(
-                        "procedure",
-                    ))),
+                // Check if there was any issues inserting the variables. If so, terminate early.
+                if !insertion_errors.is_empty() {
+                    return Err(Box::new(
+                        insertion_errors
+                            .first()
+                            .expect("we checked that the `insertion_errors` vector is not empty")
+                            .clone(),
+                    ));
                 }
+
+                // Once we have the stage set up (i.e. the variables inserted), we can iterate through the vector of commands
+                let execution_errors: Vec<Box<dyn Error>> = commands
+                    .iter()
+                    .map(|x| x.execute(context))
+                    .filter(|y| y.is_err())
+                    .map(|z| z.expect_err("we have already previously filtered for errors"))
+                    .collect();
+
+                // Check if there were any errors during execution
+                if !execution_errors.is_empty() {
+                    // For some reason, this is the only way I could find to get the owned value for the first Box<dyn Error>
+                    let error = execution_errors
+                        .into_iter()
+                        .next()
+                        .expect("we have checked that the `execution_errors` vector is not empty");
+                    return Err(error);
+                }
+
+                // If it gets this far, then the execution should have succeeded
+                Ok(())
             }
         }
     }
@@ -633,6 +773,9 @@ pub struct Program {
 
     /// The turtle itself
     turtle: Turtle,
+
+    /// A list of known procedures
+    procedures: HashMap<String, Command>,
 }
 
 impl Program {
@@ -642,6 +785,95 @@ impl Program {
             commands,
             variables: HashMap::new(),
             turtle: Turtle::new(),
+            procedures: HashMap::new(),
+        }
+    }
+
+    pub fn add_procedure(
+        &mut self,
+        name: String,
+        procedure: Command,
+    ) -> Result<(), InterpreterError> {
+        match procedure {
+            Command::ProcedureBase(_, _) => {
+                self.procedures.insert(name, procedure);
+                Ok(())
+            }
+            Command::Comment => Err(InterpreterError::invalid_type("procedure", "comment")),
+            Command::PenUp => Err(InterpreterError::invalid_type(
+                "procedure",
+                "pen up command",
+            )),
+            Command::PenDown => Err(InterpreterError::invalid_type(
+                "procedure",
+                "pen down command",
+            )),
+            Command::Forward(_) => Err(InterpreterError::invalid_type(
+                "procedure",
+                "forward command",
+            )),
+            Command::Back(_) => Err(InterpreterError::invalid_type("procedure", "back command")),
+            Command::Left(_) => Err(InterpreterError::invalid_type("procedure", "left command")),
+            Command::Right(_) => Err(InterpreterError::invalid_type("procedure", "right command")),
+            Command::SetPenColor(_) => Err(InterpreterError::invalid_type(
+                "procedure",
+                "set pen colour command",
+            )),
+            Command::Turn(_) => Err(InterpreterError::invalid_type("procedure", "turn command")),
+            Command::SetHeading(_) => Err(InterpreterError::invalid_type(
+                "procedure",
+                "set heading command",
+            )),
+            Command::SetX(_) => Err(InterpreterError::invalid_type(
+                "procedure",
+                "set x-coordinate command",
+            )),
+            Command::SetY(_) => Err(InterpreterError::invalid_type(
+                "procedure",
+                "set y-coordinate command",
+            )),
+            Command::MakeVariable(_, _) => Err(InterpreterError::invalid_type(
+                "procedure",
+                "make variable command",
+            )),
+            Command::Increment(_, _) => Err(InterpreterError::invalid_type(
+                "procedure",
+                "add assign command",
+            )),
+            Command::If(_, _) => Err(InterpreterError::invalid_type(
+                "procedure",
+                "conditional statement",
+            )),
+            Command::While(_, _) => Err(InterpreterError::invalid_type(
+                "procedure",
+                "while loop statement",
+            )),
+            Command::ProcedureDefine(_, _, _) => Err(InterpreterError::invalid_type(
+                "procedure",
+                "procedure definition instruction",
+            )),
+            Command::ProcedureExec(_, _) => Err(InterpreterError::invalid_type(
+                "procedure",
+                "completed procedure",
+            )),
+        }
+    }
+
+    pub fn get_procedure(&self, name: &String) -> Result<&Command, InterpreterError> {
+        match self.procedures.get(name) {
+            Some(val) => Ok(val),
+            None => Err(InterpreterError::unsuccessful_operation(
+                "fetching a procedure",
+            )),
+        }
+    }
+
+    pub fn insert_var(&mut self, key: String, val: EvalResult) -> Result<(), InterpreterError> {
+        match self.variables.insert(key, val) {
+            Some(_) => Ok(()),
+            None => Err(InterpreterError::unsuccessful_operation(
+                "inserting a new variable",
+            )),
         }
     }
 

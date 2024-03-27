@@ -69,7 +69,7 @@ pub fn format_parse_error<'a>(input: &'a str, e: ErrorTree<Span<'a>>) -> ParseEr
 }
 
 // TOKEN ERRORS
-#[derive(thiserror::Error, miette::Diagnostic, Debug, PartialEq)]
+#[derive(thiserror::Error, miette::Diagnostic, Clone, Debug, PartialEq)]
 pub enum InterpreterError {
     #[error("Variable not found: {0}")]
     UndefinedVariable(String),
