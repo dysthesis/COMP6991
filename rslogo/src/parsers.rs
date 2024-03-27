@@ -1,7 +1,7 @@
 use nom::{
     branch::alt,
     bytes::complete::{take_till, take_until},
-    character::complete::multispace0,
+    character::complete::{char, multispace0},
     multi::{many0, many_till},
     number::complete::float,
     sequence::{delimited, preceded, separated_pair, tuple},
@@ -282,15 +282,21 @@ fn parse_control_flow_commands(input: Span) -> IResult<Span, Command, ErrorTree<
     .parse(input)
 }
 
-fn parse_procedure(input: Span) -> IResult<Span, Command, ErrorTree<Span>> {
-    let (remainder, _): (Span, _) = tag("TO").parse(input)?;
+fn parse_procedure_definition(input: Span) -> IResult<Span, Command, ErrorTree<Span>> {
+    let (remainder, _): (Span, _) = tag("TO")
+        .context("parsing procedure definition verb")
+        .parse(input)?;
     let (remainder, name): (Span, Span) = take_till(|c: char| c == ' ' || c == '\n')
+        .context("parsing name for procedure definition")
         .preceded_by(multispace0)
         .parse(remainder)?;
     let (remainder, args): (Span, Vec<Expression>) = many0(parse_value_expression)
+        .context("parsing parameter name for procedure definition")
         .delimited_by(multispace0)
         .parse(remainder)?;
-    let (remainder, commands): (Span, Vec<Command>) = parse_commands_many(remainder)?;
+    let (remainder, commands): (Span, Vec<Command>) = parse_commands_many
+        .context("parsing the commands for a procedure")
+        .parse(remainder)?;
     let (remainder, _): (Span, _) = tag("END").parse(remainder)?;
 
     Ok((
@@ -303,6 +309,28 @@ fn parse_procedure(input: Span) -> IResult<Span, Command, ErrorTree<Span>> {
     ))
 }
 
+fn parse_procedure_invocation(input: Span) -> IResult<Span, Command, ErrorTree<Span>> {
+    let (remainder, name): (Span, Span) = take_till(|c: char| c == ' ' || c == '\n')
+        .context("parsing procedure name for invocation")
+        .parse(input)?;
+    let (remainder, args): (Span, Vec<Expression>) = match char::<Span, ErrorTree<Span>>('\n')
+        .recognize()
+        .context("checking whether or not invocation arguments are provided")
+        .parse(remainder)
+    {
+        Ok(_) => (remainder, Vec::new()),
+        Err(_) => many0(parse_value_expression)
+            .delimited_by(multispace0)
+            .context("parsing procedure invocation arguments")
+            .parse(remainder)?,
+    };
+
+    Ok((
+        remainder,
+        Command::ProcedureExec(name.into_fragment().to_string(), args),
+    ))
+}
+
 fn parse_command_expression(input: Span) -> IResult<Span, Command, ErrorTree<Span>> {
     alt((
         parse_comment,
@@ -310,10 +338,13 @@ fn parse_command_expression(input: Span) -> IResult<Span, Command, ErrorTree<Spa
         parse_single_expression_commands,
         parse_control_flow_commands,
         parse_variable_manipulation_commands,
+        // FIX: The parsers below this comment are causing `Many0` errors, figure out why
+        parse_procedure_definition,
+        parse_procedure_invocation,
     ))
     .delimited_by(multispace0)
-    .context("parsing command")
-    .parse(input)
+    .context("parsing a single command")
+    .parse(dbg!(input))
 }
 
 fn parse_commands_many(input: Span) -> IResult<Span, Vec<Command>, ErrorTree<Span>> {
@@ -329,6 +360,7 @@ fn parse_commands_many(input: Span) -> IResult<Span, Vec<Command>, ErrorTree<Spa
                 })
                 .collect()
         })
+        .context("parsing multiple commands")
         .parse(input)
 }
 
@@ -338,10 +370,12 @@ pub fn parse(input: &str) -> Result<Vec<Command>, ParseError> {
         .cut()
         // Throw an error if there are any unparsed strings
         .all_consuming()
+        .context("parsing program")
         .parse(Span::new(input))
     {
         Ok((_, res)) => Ok(res),
         Err(e) => {
+            println!("{:?}", e);
             match e {
                 // In nom, Incomplete represents a parse that is unsuccessful due to a lack of information,
                 // usually in the context of streaming parsers. It's the parser's way of saying "I can't
