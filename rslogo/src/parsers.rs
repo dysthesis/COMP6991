@@ -1,14 +1,17 @@
 use nom::{
     branch::alt,
-    bytes::complete::{take_till, take_until},
-    character::complete::{char, multispace0},
-    multi::{many0, many_till},
+    bytes::complete::{take_till, take_until, take_while},
+    character::{
+        complete::{alphanumeric0, alphanumeric1, char, multispace0},
+        is_alphanumeric,
+    },
+    combinator::opt,
+    multi::many0,
     number::complete::float,
     sequence::{delimited, preceded, separated_pair, tuple},
     IResult, Parser,
 };
 use nom_supreme::{error::ErrorTree, tag::complete::tag, ParserExt};
-use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
 use crate::{
     errors::{format_parse_error, ParseError, Span},
@@ -200,7 +203,7 @@ fn parse_expression(input: Span) -> IResult<Span, Expression, ErrorTree<Span>> {
         parse_colour_expression,
         parse_heading_expression,
     ))
-    .cut()
+    // .cut()
     .delimited_by(multispace0)
     .context("parsing expression")
     .parse(input)
@@ -283,52 +286,34 @@ fn parse_control_flow_commands(input: Span) -> IResult<Span, Command, ErrorTree<
 }
 
 fn parse_procedure_definition(input: Span) -> IResult<Span, Command, ErrorTree<Span>> {
-    let (remainder, _): (Span, _) = tag("TO")
-        .context("parsing procedure definition verb")
-        .parse(input)?;
-    let (remainder, name): (Span, Span) = take_till(|c: char| c == ' ' || c == '\n')
-        .context("parsing name for procedure definition")
-        .preceded_by(multispace0)
-        .parse(remainder)?;
-    let (remainder, args): (Span, Vec<Expression>) = many0(parse_value_expression)
-        .context("parsing parameter name for procedure definition")
-        .delimited_by(multispace0)
-        .parse(remainder)?;
-    let (remainder, commands): (Span, Vec<Command>) = parse_commands_many
-        .context("parsing the commands for a procedure")
-        .parse(remainder)?;
-    let (remainder, _): (Span, _) = tag("END").parse(remainder)?;
-
-    Ok((
-        remainder,
+    delimited(
+        tag("TO"),
+        tuple((alphanumeric0, many0(parse_expression), parse_commands_many)),
+        tag("END"),
+    )
+    .map(|(name, args, commands)| {
         Command::ProcedureDefine(
             Expression::Value(EvalResult::String(name.to_string())),
             args,
             commands,
-        ),
-    ))
+        )
+    })
+    .parse(input)
 }
 
 fn parse_procedure_invocation(input: Span) -> IResult<Span, Command, ErrorTree<Span>> {
-    let (remainder, name): (Span, Span) = take_till(|c: char| c == ' ' || c == '\n')
-        .context("parsing procedure name for invocation")
-        .parse(input)?;
-    let (remainder, args): (Span, Vec<Expression>) = match char::<Span, ErrorTree<Span>>('\n')
-        .recognize()
-        .context("checking whether or not invocation arguments are provided")
-        .parse(remainder)
-    {
-        Ok(_) => (remainder, Vec::new()),
-        Err(_) => many0(parse_value_expression)
-            .delimited_by(multispace0)
-            .context("parsing procedure invocation arguments")
-            .parse(remainder)?,
-    };
+    let name = alphanumeric1.context("parsing procedure name for invocation");
+    let arguments = many0(parse_expression).context("parsing arguments for a procedure invocation");
+    separated_pair(name, multispace0, opt(arguments))
+        .map(|(name, args): (Span, Option<Vec<Expression>>)| -> Command {
+            let args: Vec<Expression> = match args {
+                Some(val) => val,
+                None => Vec::new(),
+            };
 
-    Ok((
-        remainder,
-        Command::ProcedureExec(name.into_fragment().to_string(), args),
-    ))
+            Command::ProcedureExec(name.into_fragment().to_string(), args)
+        })
+        .parse(dbg!(input))
 }
 
 fn parse_command_expression(input: Span) -> IResult<Span, Command, ErrorTree<Span>> {
@@ -338,7 +323,7 @@ fn parse_command_expression(input: Span) -> IResult<Span, Command, ErrorTree<Spa
         parse_single_expression_commands,
         parse_control_flow_commands,
         parse_variable_manipulation_commands,
-        // FIX: The parsers below this comment are causing `Many0` errors, figure out why
+        // For some reason, the "TO" in the procedure definition is being interpreted as a procedure invocation
         parse_procedure_definition,
         parse_procedure_invocation,
     ))
@@ -351,7 +336,7 @@ fn parse_commands_many(input: Span) -> IResult<Span, Vec<Command>, ErrorTree<Spa
     many0(parse_command_expression)
         // Ignore comments
         .map(|res: Vec<Command>| -> Vec<Command> {
-            res.into_par_iter()
+            res.into_iter()
                 .filter_map(|x: Command| -> Option<Command> {
                     match x {
                         Command::Comment => None,
@@ -360,7 +345,6 @@ fn parse_commands_many(input: Span) -> IResult<Span, Vec<Command>, ErrorTree<Spa
                 })
                 .collect()
         })
-        .cut()
         .context("parsing multiple commands")
         .parse(input)
 }
@@ -408,6 +392,33 @@ mod tests {
             (remainder.into_fragment(), res),
             ("extra", Command::PenDown)
         );
+    }
+
+    #[test]
+    fn procedure_definition() {
+        let input: &str = "TO Line\nPENDOWN\nFORWARD \"50\nPENUP\nEND";
+        let expected: Vec<Command> = vec![Command::ProcedureDefine(
+            Expression::Value(EvalResult::String(input.to_string())),
+            Vec::new(),
+            vec![
+                Command::PenDown,
+                Command::Forward(Expression::Value(EvalResult::Float(50.0))),
+                Command::PenUp,
+            ],
+        )];
+
+        let res: Vec<Command> = parse(input).expect("this should be valid");
+        assert_eq!(res, expected)
+    }
+    #[test]
+    fn procedure_invocation_inside_control_flow() {
+        let input: &str = "IF \"TRUE [\nBox\n]";
+        let expected: Vec<Command> = vec![Command::If(
+            Expression::Value(EvalResult::Bool(true)),
+            vec![Command::ProcedureExec(String::from("Box"), Vec::new())],
+        )];
+        let res: Vec<Command> = parse(input).expect("this should be valid");
+        assert_eq!(res, expected);
     }
 
     #[test]
