@@ -24,18 +24,18 @@ pub struct MyVec {
 impl MyVec {
     pub fn for_each<F>(&self, f: F)
     where
-        F: FnMut(i32),
+        F: FnMut(&i32),
     {
-        for item in &mut self.items {
-            *item = f(*item);
+        for item in &self.items {
+            f(item);
         }
     }
     pub fn map<F>(&mut self, mut f: F)
     where
-        F: FnMut(&mut i32),
+        F: FnMut(i32),
     {
         for item in &mut self.items {
-            f(item);
+            *item = f(*item);
         }
     }
 }
