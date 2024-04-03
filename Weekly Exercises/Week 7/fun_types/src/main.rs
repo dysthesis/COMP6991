@@ -14,8 +14,24 @@ pub struct MyVec {
 }
 
 impl MyVec {
-    // TODO - implement for_each
-    // TODO - implement map
+    pub fn map<U, F>(self, f: F) -> MyOption<U>
+    where
+        F: FnOnce(i32) -> U,
+    {
+        match self {
+            MyOption::Some(x) => MyOption::Some(f(x)),
+            MyOption::None => MyOption::None,
+        }
+    }
+
+    pub fn for_each<F>(&self, f: F)
+    where
+        F: FnMut(&i32),
+    {
+        for item in &self.items {
+            f(item);
+        }
+    }
 }
 
 fn main() {
