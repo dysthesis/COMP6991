@@ -5,9 +5,9 @@ pub enum MyOption {
 }
 
 impl MyOption {
-    pub fn map<U, F>(self, f: F) -> MyOption<U>
+    pub fn map<U>(self, f: F) -> MyOption<i32>
     where
-        F: FnOnce(i32) -> U,
+        F: FnOnce(i32) -> i32,
     {
         match self {
             MyOption::Some(x) => MyOption::Some(f(x)),
