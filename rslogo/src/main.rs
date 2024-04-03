@@ -1,10 +1,15 @@
 mod errors;
 mod parsers;
+mod tokens;
+mod turtle;
+
+use std::path::PathBuf;
 
 use clap::Parser;
-use unsvg::Image;
+// use unsvg::Image;
 
 use miette::{Context, GraphicalReportHandler, IntoDiagnostic, Result};
+use tokens::{Command, Program};
 
 /// A simple program to parse four arguments using clap.
 #[derive(Parser)]
@@ -22,45 +27,47 @@ struct Args {
     width: u32,
 }
 
-fn main() {
+fn main() -> Result<()> {
+    miette::set_panic_hook();
     let args: Args = Args::parse();
 
     // Access the parsed arguments
     let file_path = args.file_path;
+
     let file = match std::fs::read_to_string(file_path)
         // Let miette handle the diagnostics for any file opening failure
         .into_diagnostic()
+        // Add some context to the error
         .wrap_err("Failed to open file.")
     {
         Ok(res) => res,
-        Err(e) => {
-            println!("{e}");
-            return;
-        }
+        Err(error) => return Err(error),
     };
 
-    let _image_path = args.image_path;
-    let _height = args.height;
-    let _width = args.width;
+    let _image_path: PathBuf = args.image_path;
+    let _height: u32 = args.height;
+    let _width: u32 = args.width;
+
+    let commands: Vec<Command> =
+        match crate::parsers::parse(Box::leak(file.to_string().into_boxed_str())) {
+            Ok(res) => res,
+            Err(e) => {
+                println!("{:?}", e);
+                let mut s = String::new();
+                GraphicalReportHandler::new()
+                    .render_report(&mut s, &e)
+                    .unwrap();
+                println!("{s}");
+                return Err(e).into_diagnostic();
+            }
+        };
+
+    let program: Program = Program::new(commands);
+
+    println!("{:?}", file);
+    println!("{:?}", program.commands);
 
     // There should be no remainder string from the parser. This should be ensured by nom's all_consuming
-    let parse: Result<Vec<parsers::Token>, errors::ParseError> =
-        parsers::parse(parsers::Span::new(file.as_str()));
-    let program = match parse {
-        Ok(res) => res,
-        Err(e) => {
-            // TODO: Figure out how to return the error as a report instead!
-            let mut s = String::new();
-            GraphicalReportHandler::new()
-                .render_report(&mut s, &e)
-                .unwrap();
-            println!("{s}");
-            return;
-        }
-    };
-
-    println!("{:?}", file.as_str());
-    println!("{:?}", program);
 
     // let image = Image::new(width, height);
 
@@ -85,5 +92,5 @@ fn main() {
     //     }
     // }
 
-    // Ok(())
+    Ok(())
 }
