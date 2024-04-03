@@ -26,8 +26,8 @@ impl MyVec {
     where
         F: FnMut(i32),
     {
-        for item in &self.items {
-            f(item);
+        for item in &mut self.items {
+            *item = f(*item);
         }
     }
     pub fn map<F>(&mut self, mut f: F)
