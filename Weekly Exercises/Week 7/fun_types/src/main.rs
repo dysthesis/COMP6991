@@ -5,15 +5,6 @@ pub enum MyOption {
 }
 
 impl MyOption {
-    // TODO - implement map
-}
-
-#[derive(PartialEq, Eq, Debug)]
-pub struct MyVec {
-    items: Vec<i32>,
-}
-
-impl MyVec {
     pub fn map<U, F>(self, f: F) -> MyOption<U>
     where
         F: FnOnce(i32) -> U,
@@ -23,12 +14,27 @@ impl MyVec {
             MyOption::None => MyOption::None,
         }
     }
+}
 
+#[derive(PartialEq, Eq, Debug)]
+pub struct MyVec {
+    items: Vec<i32>,
+}
+
+impl MyVec {
     pub fn for_each<F>(&self, f: F)
     where
         F: FnMut(&i32),
     {
         for item in &self.items {
+            f(item);
+        }
+    }
+    pub fn map<F>(&mut self, mut f: F)
+    where
+        F: FnMut(&mut i32),
+    {
+        for item in &mut self.items {
             f(item);
         }
     }
