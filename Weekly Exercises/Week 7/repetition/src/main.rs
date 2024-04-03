@@ -5,7 +5,15 @@ fn print_success() {
 ////////// DO NOT CHANGE ABOVE HERE /////////
 
 // TODO: create `if_any!()` macro.
-
+macro_rules! if_any {
+    // Match against a variable number of boolean expressions, followed by a semicolon and a block of code
+    ($($condition:expr),+; $block:block) => {
+        // Construct the `if` statement by concatenating conditions with `||`
+        if $($condition)||+ {
+            $block
+        }
+    };
+}
 
 ////////// DO NOT CHANGE BELOW HERE /////////
 
