@@ -1,21 +1,18 @@
 // YOUR MACRO HERE
 #[macro_export]
 macro_rules! avg {
-    // Match at least one expression followed by `,` and zero or more expressions
-    ($first:expr, $($rest:expr),*) => {{
-        // Initialize sum with the first expression cast to f64 for floating-point arithmetic
-        let mut sum = $first as f64;
-        // Count the first expression
-        let mut count = 1usize;
+    ($($num:expr),+) => {{
+        let mut sum = 0f64; // Use f64 for intermediate calculations to preserve precision.
+        let mut count = 0usize; // Count the number of elements.
 
-        // Iterate over the rest of the expressions
+        // Iterate over the provided numbers, summing them and counting.
         $(
-            sum += $rest as f64; // Add each to the sum, casting to f64
-            count += 1;          // Increment the count for each additional expression
+            sum += $num as f64; // Cast each number to f64 for the addition.
+            count += 1; // Increment the count for each number.
         )*
 
-        // Perform floating-point division to get the average
-        sum / count as f64
+        // Calculate the average, round it to the nearest whole number, and then cast to i32.
+        (sum / count as f64).round() as i32
     }};
 }
 
