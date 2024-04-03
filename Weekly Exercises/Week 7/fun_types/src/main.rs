@@ -22,7 +22,7 @@ pub struct MyVec {
 }
 
 impl MyVec {
-    pub fn for_each<F>(&self, f: F)
+    pub fn for_each<F>(&self, mut f: F)
     where
         F: FnMut(&i32),
     {
