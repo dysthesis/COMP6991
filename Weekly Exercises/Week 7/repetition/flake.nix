@@ -61,6 +61,7 @@
             bacon
             cargo-watch
             cargo-tarpaulin
+            cargo-expand
             rust-analyzer
           ];
 
