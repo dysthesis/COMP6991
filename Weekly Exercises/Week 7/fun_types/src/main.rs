@@ -5,7 +5,7 @@ pub enum MyOption {
 }
 
 impl MyOption {
-    pub fn map<U>(self, f: F) -> MyOption<i32>
+    pub fn map<F>(self, f: F) -> MyOption<i32>
     where
         F: FnOnce(i32) -> i32,
     {
