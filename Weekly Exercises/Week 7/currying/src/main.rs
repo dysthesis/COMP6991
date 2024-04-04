@@ -1,4 +1,29 @@
 //TODO: Your curry! macro here:
+macro_rules! curry {
+    // Match a function signature with at least one argument
+    (($first_param_name:ident: $first_param_type:ty) $(, $param_name:ident: $param_type:ty)*) => $body:block) => {
+        {
+            // Generate the first layer of the curried function
+            move |$first_param_name: $first_param_type| {
+                // Recursively apply the macro to handle subsequent parameters
+                curry!(@inner $($param_name: $param_type),* => $body)
+            }
+        }
+    };
+
+    // Helper macro for handling subsequent parameters
+    (@inner $param_name:ident: $param_type:ty $(, $rest_param_name:ident: $rest_param_type:ty)*) => $body:block) => {
+        move |$param_name: $param_type| {
+            curry!(@inner $($rest_param_name: $rest_param_type),* => $body)
+        }
+    };
+
+    // Base case: no more parameters, execute the computation block
+    (@inner => $body:block) => {
+        $body
+    };
+}
+}
 
 
 ////////// DO NOT CHANGE BELOW HERE /////////
