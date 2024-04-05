@@ -5,7 +5,6 @@ use rsheet_lib::replies::Reply;
 
 use std::collections::HashMap;
 use std::error::Error;
-use std::ops::Deref;
 
 use log::info;
 
@@ -41,47 +40,66 @@ where
         let commands: Vec<&str> = msg.split_whitespace().collect::<Vec<&str>>();
 
         let _result = match commands.first() {
-            Some(verb) => match *verb {
-                "get" => {
-                    let cell: &str = match commands.get(1) {
-                        Some(val) => *val,
-                        None => todo!("make this error out"),
-                    };
-
-                    let value: CellValue = spreadsheet
-                        .values
-                        .get(cell)
-                        .expect("placeholder for an actual error")
-                        .clone();
-                    send.write_message(Reply::Value(cell.to_string(), value))
-                }
-                "set" => {
-                    let cell: &str = match commands.get(1) {
-                        Some(val) => *val,
-                        None => todo!("make this error out"),
-                    };
-
-                    spreadsheet.commands.insert(
-                        cell.into(),
-                        CommandRunner::new(commands[2..].join(" ").as_str()),
-                    );
-
-                    let command = CommandRunner::new(commands[2..].join(" ").as_str());
-                    let referenced: Vec<String> = command.find_variables();
-                    let variables: HashMap<String, CellArgument> =
-                        referenced.iter().fold(HashMap::new(), |mut acc, key| {
-                            if let Some(&ref value) = spreadsheet.values.get(key) {
-                                acc.insert(key.into(), CellArgument::Value(value.clone()));
+            Some(verb) => {
+                match *verb {
+                    "get" => {
+                        let cell: &str = match commands.get(1) {
+                            Some(val) => *val,
+                            None => {
+                                send.write_message(Reply::Error(format!("Insufficient arguments for 'get' command. Expected a cell number.")))?;
+                                continue;
                             }
-                            acc
-                        });
-                    spreadsheet
-                        .values
-                        .insert(cell.into(), command.run(&variables));
-                    Ok(())
+                        };
+
+                        let value: CellValue = match spreadsheet.values.get(cell) {
+                            Some(val) => val.clone(),
+                            None => {
+                                send.write_message(Reply::Error(format!(
+                                    "Could not find a value for the cell {cell}"
+                                )))?;
+                                continue;
+                            }
+                        };
+                        send.write_message(Reply::Value(cell.to_string(), value))
+                    }
+                    "set" => {
+                        let cell: &str = match commands.get(1) {
+                            Some(val) => *val,
+                            None => {
+                                send.write_message(Reply::Error(format!("Insufficient arguments for 'set' command. Expected a cell number.")))?;
+                                continue;
+                            }
+                        };
+
+                        if commands.len() < 3 {
+                            send.write_message(Reply::Error(format!("Insufficient command length. Expected an expression to set the value of cell {cell} to.")))?;
+                            continue;
+                        };
+                        spreadsheet.commands.insert(
+                            cell.into(),
+                            CommandRunner::new(commands[2..].join(" ").as_str()),
+                        );
+
+                        let command = CommandRunner::new(commands[2..].join(" ").as_str());
+                        let referenced: Vec<String> = command.find_variables();
+                        let variables: HashMap<String, CellArgument> =
+                            referenced.iter().fold(HashMap::new(), |mut acc, key| {
+                                if let Some(&ref value) = spreadsheet.values.get(key) {
+                                    acc.insert(key.into(), CellArgument::Value(value.clone()));
+                                }
+                                acc
+                            });
+                        spreadsheet
+                            .values
+                            .insert(cell.into(), command.run(&variables));
+                        Ok(())
+                    }
+                    _ => {
+                        send.write_message(Reply::Error(format!("Unrecognised command.")))?;
+                        continue;
+                    }
                 }
-                _ => todo!("make this error out"),
-            },
+            }
             None => todo!("make this error out"),
         };
     }
