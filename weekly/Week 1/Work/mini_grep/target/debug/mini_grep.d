@@ -1,0 +1,1 @@
+/home/apollyon/Documents/University/COMP6991/Weekly\ Exercises/Week\ 1/Work/mini_grep/target/debug/mini_grep: /home/apollyon/Documents/University/COMP6991/Weekly\ Exercises/Week\ 1/Work/mini_grep/src/main.rs
