@@ -18,43 +18,38 @@ fn handle_client(mut stream: TcpStream, state: Arc<Mutex<State>>) {
     let mut buffer = [0; 1024];
     // Read data from the stream into the buffer.
     stream.read(&mut buffer).unwrap();
-    // Convert the buffer into a readable String.
-    let request = String::from_utf8_lossy(&buffer);
+    // Determine the type of request (GET or POST) and the requested path.
+    let binding = String::from_utf8_lossy(&buffer);
+    let request_line = binding.lines().next().unwrap_or_default();
+    let mut counter_value = String::new();
 
-    // Load the HTML file as a byte array.
-    let mut file = include_bytes!("../index.html").to_vec();
-    // Placeholder to be replaced in the HTML content.
-    let placeholder = "{{{ counter }}}";
-
-    // Check if the request is a POST request to the "/counter" endpoint.
-    if request.starts_with("POST /counter HTTP/1.1") {
-        // Lock the state to increment the counter safely across threads.
+    {
+        // Lock the state to safely access the counter. The lock is scoped to allow it to be released before writing to the stream.
         let mut state = state.lock().unwrap();
-        state.counter += 1;
-        // Convert the HTML file into a String and replace the placeholder with the current counter value.
-        let file_str = String::from_utf8(file)
-            .unwrap()
-            .replace(placeholder, &state.counter.to_string());
-        // Convert the modified HTML String back into a byte array.
-        file = file_str.into_bytes();
-    } else {
-        // For other requests, just replace the placeholder without incrementing the counter.
-        let state = state.lock().unwrap();
-        let file_str = String::from_utf8(file)
-            .unwrap()
-            .replace(placeholder, &state.counter.to_string());
-        file = file_str.into_bytes();
-    }
 
+        if request_line.starts_with("POST /counter") {
+            // Increment the counter for POST requests to "/counter".
+            state.counter += 1;
+        }
+
+        // Copy the counter value to a string to be used in the HTML replacement.
+        counter_value = state.counter.to_string();
+    } // MutexGuard is dropped here, releasing the lock.
+
+    // Load and modify the HTML content.
+    let html_template = include_str!("../index.html");
+    let html_content = html_template.replace("{{{ counter }}}", &counter_value);
+
+    // Construct the HTTP response with the modified HTML content. Keeping the 'DONT CHANGE ME' part intact.
     // DONT CHANGE ME
     let response = format!(
-        "HTTP/1.1 200 OK\r\nContentType: text/html; charset=utf-8\r\nAccess-Control-Allow-Origin: *\r\nContent-Length: {}\r\n\r\n",
-        file.len()
+        "HTTP/1.1 200 OK\r\nContentType: text/html; charset=utf-8\r\nAccess-Control-Allow-Origin: *\r\nContent-Length: {}\r\n\r\n{}",
+        html_content.len(),
+        html_content
     );
 
-    // Write the response header and the modified HTML content back to the client.
+    // Write the HTTP response back to the client.
     stream.write_all(response.as_bytes()).unwrap();
-    stream.write_all(&file).unwrap();
     // Ensure all data is sent before closing the connection.
     stream.flush().unwrap();
 }
