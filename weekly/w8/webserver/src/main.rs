@@ -7,32 +7,44 @@ use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 // hint, hint
 use std::sync::{Arc, Mutex};
+use std::thread;
 
 struct State {
     counter: i32,
 }
 
-fn handle_client(mut stream: TcpStream) {
-    // setup buffer, and read from stream into buffer
+fn handle_client(mut stream: TcpStream, state: Arc<Mutex<State>>) {
+    // Buffer to store incoming data from the stream.
     let mut buffer = [0; 1024];
+    // Read data from the stream into the buffer.
     stream.read(&mut buffer).unwrap();
+    // Convert the buffer into a readable String.
+    let request = String::from_utf8_lossy(&buffer);
 
-    // convert request payload to string
-    let string = String::from_utf8_lossy(&buffer);
+    // Load the HTML file as a byte array.
+    let mut file = include_bytes!("../index.html").to_vec();
+    // Placeholder to be replaced in the HTML content.
+    let placeholder = "{{{ counter }}}";
 
-    // extract header
-    let mut split = string.split("\r\n");
-    let header = split.next().unwrap();
-
-    if header == "POST /counter HTTP/1.1" {
-        //TODO: increment the counter
+    // Check if the request is a POST request to the "/counter" endpoint.
+    if request.starts_with("POST /counter HTTP/1.1") {
+        // Lock the state to increment the counter safely across threads.
+        let mut state = state.lock().unwrap();
+        state.counter += 1;
+        // Convert the HTML file into a String and replace the placeholder with the current counter value.
+        let file_str = String::from_utf8(file)
+            .unwrap()
+            .replace(placeholder, &state.counter.to_string());
+        // Convert the modified HTML String back into a byte array.
+        file = file_str.into_bytes();
+    } else {
+        // For other requests, just replace the placeholder without incrementing the counter.
+        let state = state.lock().unwrap();
+        let file_str = String::from_utf8(file)
+            .unwrap()
+            .replace(placeholder, &state.counter.to_string());
+        file = file_str.into_bytes();
     }
-
-    let file = include_bytes!("../index.html");
-
-    // TODO: replace triple brackets in file with the counter in state (array of bytes)
-    //      - you should make sure your resulting content is still called file
-    //      - or the below code will not work
 
     // DONT CHANGE ME
     let response = format!(
@@ -40,9 +52,10 @@ fn handle_client(mut stream: TcpStream) {
         file.len()
     );
 
-    // converts response to &[u8], and writes them to the stream
+    // Write the response header and the modified HTML content back to the client.
     stream.write_all(response.as_bytes()).unwrap();
-    stream.write_all(file).unwrap();
+    stream.write_all(&file).unwrap();
+    // Ensure all data is sent before closing the connection.
     stream.flush().unwrap();
 }
 
@@ -53,12 +66,19 @@ fn main() -> std::io::Result<()> {
     println!("Server running on port {}", port);
     // TODO: create new state, so that it can be safely
     //      shared between threads
+    // Initialize shared state with a counter set to 0, wrapped in Arc and Mutex for safe sharing across threads.
+    let state = Arc::new(Mutex::new(State { counter: 0 }));
 
-    // accept connections and process them serially
+    // Listen for incoming TCP connections in a loop.
     for stream in listener.incoming() {
-        // TODO: spawn a thread for each connection
-        // TODO: pass the state to the thread (and the handle_client fn)
-        handle_client(stream.unwrap());
+        let stream = stream?;
+        // Clone the Arc to retain shared ownership of the state across threads.
+        let state = Arc::clone(&state);
+
+        // Spawn a new thread for each connection, handling it in isolation.
+        thread::spawn(move || {
+            handle_client(stream, state);
+        });
     }
     Ok(())
 }
