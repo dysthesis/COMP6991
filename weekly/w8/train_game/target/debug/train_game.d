@@ -1,1 +1,1 @@
-/home/apollyon/Documents/University/COMP6991/Weekly\ Exercises/Week\ 8/train_game/target/debug/train_game: /home/apollyon/Documents/University/COMP6991/Weekly\ Exercises/Week\ 8/train_game/src/main.rs /home/apollyon/Documents/University/COMP6991/Weekly\ Exercises/Week\ 8/train_game/src/test.rs
+/home/apollyon/Documents/University/COMP6991/weekly/w8/train_game/target/debug/train_game: /home/apollyon/Documents/University/COMP6991/weekly/w8/train_game/src/main.rs /home/apollyon/Documents/University/COMP6991/weekly/w8/train_game/src/test.rs

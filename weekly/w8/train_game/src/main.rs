@@ -1,3 +1,5 @@
+use std::thread;
+
 use itertools::Itertools;
 mod test;
 fn main() {
@@ -29,14 +31,26 @@ fn main() {
     // you only need to change code from here onwards
     // first, split up the digits_operators into 6 vecs
     // using the chunks method
+    let chunk_size = digits_operators.len() / 32;
+    let chunks = digits_operators.chunks(chunk_size).collect::<Vec<_>>();
 
-    dbg!(digits_operators)
-        .into_iter()
-        .for_each(|(digits, operators): (Vec<i32>, Vec<char>)| {
-            // go through one combination of
-            // operators and see if it works
-            let _ = calculate(digits, operators);
-        });
+    // Create a thread scope
+    thread::scope(|s| {
+        for chunk in chunks {
+            s.spawn(move || {
+                for (digits, operators) in chunk.to_owned() {
+                    let _ = calculate(digits, operators);
+                }
+            });
+        }
+    });
+    // digits_operators
+    //     .into_iter()
+    //     .for_each(|(digits, operators): (Vec<i32>, Vec<char>)| {
+    //         // go through one combination of
+    //         // operators and see if it works
+    //         let _ = calculate(digits, operators);
+    //     });
 }
 
 // DO NOT MODIFY
