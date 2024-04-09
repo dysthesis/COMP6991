@@ -14,43 +14,51 @@ struct State {
 }
 
 fn handle_client(mut stream: TcpStream, state: Arc<Mutex<State>>) {
-    // Buffer to store incoming data from the stream.
+    // setup buffer, and read from stream into buffer
     let mut buffer = [0; 1024];
-    // Read data from the stream into the buffer.
     stream.read(&mut buffer).unwrap();
-    // Determine the type of request (GET or POST) and the requested path.
-    let binding = String::from_utf8_lossy(&buffer);
-    let request_line = binding.lines().next().unwrap_or_default();
-    let mut counter_value = String::new();
 
-    {
-        // Lock the state to safely access the counter. The lock is scoped to allow it to be released before writing to the stream.
+    // convert request payload to string
+    let string = String::from_utf8_lossy(&buffer);
+
+    // extract header
+    let mut split = string.split("\r\n");
+    let header = split.next().unwrap();
+
+    let mut file = include_bytes!("../index.html").to_vec();
+    let placeholder = "{{{ counter }}}";
+
+    if header == "POST /counter HTTP/1.1" {
         let mut state = state.lock().unwrap();
+        state.counter += 1;
+        // Convert the HTML file into a String and replace the placeholder with the current counter value.
+        let file_str = String::from_utf8(file)
+            .unwrap()
+            .replace(placeholder, &state.counter.to_string());
+        // Convert the modified HTML String back into a byte array.
+        file = file_str.into_bytes();
+    } else {
+        let state = state.lock().unwrap(); // Convert the HTML file into a String and replace the placeholder with the current counter value.
+        let file_str = String::from_utf8(file)
+            .unwrap()
+            .replace(placeholder, &state.counter.to_string());
+        // Convert the modified HTML String back into a byte array.
+        file = file_str.into_bytes();
+    }
 
-        if request_line.starts_with("POST /counter") {
-            // Increment the counter for POST requests to "/counter".
-            state.counter += 1;
-        }
+    // TODO: replace triple brackets in file with the counter in state (array of bytes)
+    //      - you should make sure your resulting content is still called file
+    //      - or the below code will not work
 
-        // Copy the counter value to a string to be used in the HTML replacement.
-        counter_value = state.counter.to_string();
-    } // MutexGuard is dropped here, releasing the lock.
-
-    // Load and modify the HTML content.
-    let html_template = include_str!("../index.html");
-    let html_content = html_template.replace("{{{ counter }}}", &counter_value);
-
-    // Construct the HTTP response with the modified HTML content. Keeping the 'DONT CHANGE ME' part intact.
     // DONT CHANGE ME
     let response = format!(
-        "HTTP/1.1 200 OK\r\nContentType: text/html; charset=utf-8\r\nAccess-Control-Allow-Origin: *\r\nContent-Length: {}\r\n\r\n{}",
-        html_content.len(),
-        html_content
+        "HTTP/1.1 200 OK\r\nContentType: text/html; charset=utf-8\r\nAccess-Control-Allow-Origin: *\r\nContent-Length: {}\r\n\r\n",
+        file.len()
     );
 
-    // Write the HTTP response back to the client.
+    // converts response to &[u8], and writes them to the stream
     stream.write_all(response.as_bytes()).unwrap();
-    // Ensure all data is sent before closing the connection.
+    stream.write_all(&file).unwrap();
     stream.flush().unwrap();
 }
 
@@ -61,16 +69,12 @@ fn main() -> std::io::Result<()> {
     println!("Server running on port {}", port);
     // TODO: create new state, so that it can be safely
     //      shared between threads
-    // Initialize shared state with a counter set to 0, wrapped in Arc and Mutex for safe sharing across threads.
-    let state = Arc::new(Mutex::new(State { counter: 0 }));
+    let state: Arc<Mutex<State>> = Arc::new(Mutex::new(State { counter: 0 }));
 
-    // Listen for incoming TCP connections in a loop.
+    // accept connections and process them serially
     for stream in listener.incoming() {
-        let stream = stream?;
-        // Clone the Arc to retain shared ownership of the state across threads.
+        let stream = stream.unwrap();
         let state = Arc::clone(&state);
-
-        // Spawn a new thread for each connection, handling it in isolation.
         thread::spawn(move || {
             handle_client(stream, state);
         });
