@@ -1,4 +1,7 @@
-use std::thread;
+use std::{
+    sync::{mpsc, Arc, Mutex},
+    thread,
+};
 
 use itertools::Itertools;
 mod test;
@@ -31,19 +34,49 @@ fn main() {
     // you only need to change code from here onwards
     // first, split up the digits_operators into 6 vecs
     // using the chunks method
-    let chunk_size = digits_operators.len() / 32;
+    let chunk_size = digits_operators.len() / 6;
     let chunks = digits_operators.chunks(chunk_size).collect::<Vec<_>>();
 
-    // Create a thread scope
+    let (tx, rx) = mpsc::channel();
+    let thread_num = Arc::new(Mutex::new(0)); // Shared thread number
+
     thread::scope(|s| {
         for chunk in chunks {
+            // Assuming 'chunks' is defined elsewhere
+            let tx_clone = tx.clone();
+            let thread_num_clone = Arc::clone(&thread_num);
+
             s.spawn(move || {
+                let mut local_count = 0;
                 for (digits, operators) in chunk.to_owned() {
-                    let _ = calculate(digits, operators);
+                    if let Ok(10) = calculate(digits, operators) {
+                        local_count += 1;
+                    }
                 }
+
+                let num = {
+                    let mut num = thread_num_clone.lock().unwrap();
+                    let val = dbg!(*num); // Copy the thread number
+                    *num += 1; // Increment the thread number for the next thread
+                    val
+                };
+
+                tx_clone
+                    .send((num, local_count))
+                    .expect("Failed to send count");
             });
         }
     });
+
+    drop(tx); // Drop the original transmitter to close the channel
+
+    let mut total_count = 0;
+    rx.into_iter().for_each(|(thread_num, count)| {
+        println!("Thread {} found {} combinations", thread_num, count);
+        total_count += count;
+    });
+
+    println!("Total: {}", total_count);
     // digits_operators
     //     .into_iter()
     //     .for_each(|(digits, operators): (Vec<i32>, Vec<char>)| {
@@ -54,7 +87,7 @@ fn main() {
 }
 
 // DO NOT MODIFY
-fn calculate(digits: Vec<i32>, operators: Vec<char>) -> Result<(), ()> {
+fn calculate(digits: Vec<i32>, operators: Vec<char>) -> Result<i32, ()> {
     let num1 = digits[0];
     let num2 = digits[1];
     let num3 = digits[2];
@@ -78,7 +111,7 @@ fn calculate(digits: Vec<i32>, operators: Vec<char>) -> Result<(), ()> {
         );
     }
 
-    Ok(())
+    Ok(result)
 }
 
 // DO NOT MODIFY
