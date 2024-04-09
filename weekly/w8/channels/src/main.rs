@@ -1,4 +1,4 @@
-use std::{sync::mpsc, thread};
+use std::thread;
 
 use itertools::Itertools;
 mod test;
@@ -31,38 +31,19 @@ fn main() {
     // you only need to change code from here onwards
     // first, split up the digits_operators into 6 vecs
     // using the chunks method
-    let num_chunks: usize = 6;
-    let chunk_size = digits_operators.len() / num_chunks;
+    let chunk_size = digits_operators.len() / 32;
     let chunks = digits_operators.chunks(chunk_size).collect::<Vec<_>>();
-    let (tx, rx) = mpsc::channel();
 
+    // Create a thread scope
     thread::scope(|s| {
         for chunk in chunks {
-            let tx_clone = tx.clone(); // Clone the transmitter for this thread
             s.spawn(move || {
-                let mut local_count = 0;
-                // Assuming `chunk` is your iterable of calculations for this thread
                 for (digits, operators) in chunk.to_owned() {
-                    if calculate(digits, operators).is_ok() {
-                        // If `calculate` does not return an error, count it as valid
-                        local_count += 1;
-                    }
+                    let _ = calculate(digits, operators);
                 }
-                // Send the count of valid calculations found by this thread
-                tx_clone.send(local_count).expect("Failed to send count");
             });
         }
     });
-
-    drop(tx); // Drop the original transmitter to close the channel
-
-    let mut total_count = 0;
-    for count in rx {
-        println!("A thread found {} valid calculations", count);
-        total_count += count;
-    }
-
-    println!("Total valid calculations: {}", total_count);
     // digits_operators
     //     .into_iter()
     //     .for_each(|(digits, operators): (Vec<i32>, Vec<char>)| {
