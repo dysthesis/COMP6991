@@ -27,7 +27,7 @@ fn main() {
 
     // TODO: Call the external C function "secret_c_calculation"
     // with parameters x, y, z
-    let secret_value = 42;
+    let secret_value = unsafe { secret_c_calculation(x, y, z as c_char) };
 
     println!("The secret value is {secret_value}");
 }
