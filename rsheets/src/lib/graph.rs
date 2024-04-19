@@ -1,4 +1,12 @@
-fn update_dependencies(
+use crate::command::command_variable_finder;
+use crate::spreadsheet::Spreadsheet;
+use rsheet_lib::cell_value::CellValue;
+use rsheet_lib::cells::column_name_to_number;
+use rsheet_lib::cells::column_number_to_name;
+use rsheet_lib::command_runner::CommandRunner;
+use std::collections::HashMap;
+
+pub(crate) fn update_dependencies(
     cell: &str,
     spreadsheet: &Spreadsheet,
 ) -> (HashMap<String, CellValue>, Vec<String>) {
@@ -51,7 +59,8 @@ fn parse_cell(cell: &str) -> Result<(String, u32), &'static str> {
 
     Ok((col_part, row_num))
 }
-fn cells_to_value(
+
+pub(crate) fn cells_to_value(
     cell_names: Vec<Vec<String>>,
     data_map: &HashMap<String, CellValue>,
 ) -> Result<Vec<Vec<CellValue>>, &'static str> {

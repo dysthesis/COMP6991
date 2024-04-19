@@ -1,4 +1,10 @@
-fn command_variable_finder(
+use crate::graph::{cells_to_value, list_cells_in_range};
+use crate::spreadsheet::Spreadsheet;
+use rsheet_lib::command_runner::CellArgument;
+use rsheet_lib::command_runner::CommandRunner;
+use std::collections::HashMap;
+
+pub(crate) fn command_variable_finder(
     command: &CommandRunner,
     spreadsheet: &Spreadsheet,
 ) -> Result<HashMap<String, CellArgument>, &'static str> {
