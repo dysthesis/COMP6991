@@ -10,7 +10,6 @@ pub(crate) fn update_dependencies(
     cell: &str,
     spreadsheet: &Spreadsheet,
 ) -> (HashMap<String, CellValue>, Vec<String>) {
-    dbg!(format!("Updating dependents of cell {cell}"));
     let mut res: (HashMap<String, CellValue>, Vec<String>) = spreadsheet
         .commands
         .iter()
@@ -19,8 +18,7 @@ pub(crate) fn update_dependencies(
             let command = CommandRunner::new(val);
             match command_variable_finder(&command, &spreadsheet) {
                 Ok(val) => {
-                    acc.0
-                        .insert(dbg!(key.into()), dbg!(command.run(&dbg!(val))));
+                    acc.0.insert(key.into(), command.run(&dbg!(val)));
                 }
                 Err(e) => {
                     acc.1.push(format!("{e}: {key}"));
