@@ -1,7 +1,7 @@
 use std::error::Error;
 
 use clap::Parser;
-use rsheet::start_server;
+use rsheet::lib::server::start_server;
 use rsheet_lib::connect::{resolve_address, ConnectionManager, TerminalManager};
 
 #[derive(Parser, Debug)]
