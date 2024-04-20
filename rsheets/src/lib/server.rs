@@ -40,6 +40,9 @@ where
                 }
 
                 "set" => {
+                    if spreadsheet.is_self_referential() {
+                        continue;
+                    }
                     let cell: &str = match commands.get(1) {
                         Some(val) => *val,
                         None => {

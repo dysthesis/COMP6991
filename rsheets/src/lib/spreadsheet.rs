@@ -52,6 +52,10 @@ impl Spreadsheet {
         }
     }
 
+    pub(crate) fn is_self_referential(&self) -> bool {
+        is_cyclic_directed(&self.dependency_graph)
+    }
+
     pub(crate) fn set(&mut self, key: String, command: String) -> Result<(), String> {
         let cell = Cell::new(command, &self)?;
         self.cells.insert(key.clone(), cell);
