@@ -1,5 +1,6 @@
-use crate::graph::{cells_to_value, list_cells_in_range};
 use crate::spreadsheet::Spreadsheet;
+use rsheet_lib::cell_value::CellValue;
+use rsheet_lib::cells::{column_name_to_number, column_number_to_name};
 use rsheet_lib::command_runner::CellArgument;
 use rsheet_lib::command_runner::CommandRunner;
 use std::collections::HashMap;
@@ -12,8 +13,9 @@ pub(crate) fn command_variable_finder(
 
     referenced.iter().try_fold(HashMap::new(), |mut acc, key| {
                             if key.contains("_") {
-                                let cells = list_cells_in_range(key)?;
-                                let values_matrix = cells_to_value(cells, &spreadsheet.values)?;
+                                let cell_names = list_cells_in_range(key)?;
+                                let cell_values: HashMap<String, CellValue> = spreadsheet.cells.iter().map(|(key, val)| (key.clone(), val.value.clone())).collect();
+                                let values_matrix = cells_to_value(cell_names, &cell_values)?;
                                 if values_matrix.len() == 1 {
                                     acc.insert(
                                         key.clone(),
@@ -23,12 +25,69 @@ pub(crate) fn command_variable_finder(
                                     acc.insert(key.clone(), CellArgument::Matrix(values_matrix));
                                 }
                             } else {
-                                if let Some(value) = spreadsheet.values.get(key) {
-                                    acc.insert(key.clone(), CellArgument::Value(value.clone()));
+                                if let Some(cell) = spreadsheet.cells.get(key) {
+                                    acc.insert(key.clone(), CellArgument::Value(cell.value.clone()));
                                 } else {
                                     return Err("Missing key for individual cell reference");
                                 }
                             }
                             Ok(acc)
                         })
+}
+fn parse_cell(cell: &str) -> Result<(String, u32), &'static str> {
+    let col_part = cell
+        .chars()
+        .take_while(|c| c.is_alphabetic())
+        .collect::<String>();
+    let row_part: String = cell.chars().filter(|c| c.is_numeric()).collect();
+
+    if col_part.is_empty() || row_part.is_empty() {
+        return Err("Invalid cell format");
+    }
+
+    let row_num: u32 = row_part.parse().map_err(|_| "Invalid number in cell")?;
+
+    Ok((col_part, row_num))
+}
+
+pub(crate) fn cells_to_value(
+    cell_names: Vec<Vec<String>>,
+    data_map: &HashMap<String, CellValue>,
+) -> Result<Vec<Vec<CellValue>>, &'static str> {
+    cell_names
+        .into_iter()
+        .map(|col| {
+            col.into_iter()
+                .map(|cell_name| {
+                    data_map
+                        .get(&cell_name)
+                        .cloned()
+                        .ok_or("Missing key in HashMap")
+                })
+                .collect::<Result<Vec<_>, _>>() // Collect inner vector results, short-circuiting on error
+        })
+        .collect() // Collect outer vector results, short-circuiting on error
+}
+pub fn list_cells_in_range(range: &str) -> Result<Vec<Vec<String>>, &'static str> {
+    let parts: Vec<&str> = range.split('_').collect();
+    if parts.len() != 2 {
+        return Err("Range must be in 'start_end' format");
+    }
+
+    let (start_col, start_row) = parse_cell(parts[0])?;
+    let (end_col, end_row) = parse_cell(parts[1])?;
+
+    let col_start = column_name_to_number(&start_col);
+    let col_end = column_name_to_number(&end_col);
+
+    let columns = (col_start..=col_end)
+        .map(|col_num| {
+            let col_name = column_number_to_name(col_num);
+            (start_row..=end_row)
+                .map(move |row_num| format!("{}{}", col_name, row_num))
+                .collect::<Vec<String>>()
+        })
+        .collect::<Vec<Vec<String>>>();
+
+    Ok(columns)
 }

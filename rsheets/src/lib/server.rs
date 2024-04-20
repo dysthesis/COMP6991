@@ -1,9 +1,5 @@
-use crate::command::command_variable_finder;
-use crate::graph::update_dependencies;
 use crate::spreadsheet::Spreadsheet;
 use log::info;
-use rsheet_lib::cell_value::CellValue;
-use rsheet_lib::command_runner::CommandRunner;
 use rsheet_lib::connect::Manager;
 use rsheet_lib::connect::Reader;
 use rsheet_lib::connect::Writer;
@@ -33,18 +29,13 @@ where
                             continue;
                         }
                     };
-
-                    let value: CellValue = match spreadsheet.values.get(cell) {
-                        Some(val) => val.clone(),
-                        None => {
-                            send.write_message(Reply::Error(format!(
-                                "Could not find a value for the cell {cell}"
-                            )))?;
-                            continue;
-                        }
+                    let reply = match spreadsheet.get(cell.to_string()) {
+                        Ok(val) => Reply::Value(cell.to_string(), val),
+                        Err(e) => Reply::Error(e.to_string()),
                     };
-                    send.write_message(Reply::Value(cell.to_string(), value))
+                    send.write_message(reply)
                 }
+
                 "set" => {
                     let cell: &str = match commands.get(1) {
                         Some(val) => *val,
@@ -60,36 +51,8 @@ where
                         send.write_message(Reply::Error(format!("Insufficient command length. Expected an expression to set the value of cell {cell} to.")))?;
                         continue;
                     };
-                    spreadsheet
-                        .commands
-                        .insert(cell.into(), commands[2..].join(" "));
+                    spreadsheet.set(cell.into(), commands[2..].join(" "))?;
 
-                    let command: CommandRunner = match spreadsheet.commands.get(cell.into()) {
-                        Some(val) => CommandRunner::new(val.as_str()),
-                        None => {
-                            send.write_message(Reply::Error(format!("Could not find the command even though we have only inserted it immediately before this.")))?;
-                            continue;
-                        }
-                    };
-
-                    let variables = command_variable_finder(&command, &spreadsheet)?;
-
-                    spreadsheet
-                        .values
-                        .insert(cell.into(), command.run(&variables));
-
-                    // TODO: Make this async
-                    // Iterate through the commands vector and update the values for any of them that depends on this cell
-                    let (to_update, errors) = update_dependencies(cell, &spreadsheet);
-                    if errors.is_empty() {
-                        spreadsheet.values.extend(to_update);
-                    } else {
-                        errors.iter().for_each(|err| {
-                            // TODO: Figure out what to do with the errors here
-                            let _ = send.write_message(Reply::Error(err.into()));
-                        });
-                        continue;
-                    }
                     Ok(())
                 }
                 _ => {
