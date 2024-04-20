@@ -68,8 +68,21 @@ pub(crate) fn cells_to_value(
         })
         .collect() // Collect outer vector results, short-circuiting on error
 }
-pub fn list_cells_in_range(range: &str) -> Result<Vec<Vec<String>>, &'static str> {
+
+pub(crate) fn list_cells_in_range(range: &str) -> Result<Vec<Vec<String>>, &'static str> {
     let parts: Vec<&str> = range.split('_').collect();
+    if parts.len() == 1
+        && !parts
+            .first()
+            .expect("we verified that there is exactly one item in the list")
+            .chars()
+            .all(char::is_alphanumeric)
+    {
+        return Ok(vec![vec![parts
+            .first()
+            .expect("we verified that there is exactly one item in the list")
+            .to_string()]]);
+    }
     if parts.len() != 2 {
         return Err("Range must be in 'start_end' format");
     }

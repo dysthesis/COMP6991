@@ -7,7 +7,7 @@ use petgraph::{
 };
 use rsheet_lib::{cell_value::CellValue, command_runner::CommandRunner};
 
-use crate::command::command_variable_finder;
+use crate::command::{command_variable_finder, list_cells_in_range};
 
 pub(crate) struct Cell {
     pub(crate) value: CellValue,
@@ -81,7 +81,14 @@ impl Spreadsheet {
             }
         };
         let command = CommandRunner::new(&cell.command);
-        let dependencies = command.find_variables();
+        let dependencies: Vec<String> = command
+            .find_variables()
+            .iter()
+            .flat_map(|x| list_cells_in_range(x))
+            // flatten it out
+            .flat_map(|x| x.into_iter())
+            .flat_map(|x| x.into_iter())
+            .collect();
         let target = match self.nodes.get(&key) {
             Some(node) => node,
             None => {
