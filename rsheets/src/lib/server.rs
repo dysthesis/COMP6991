@@ -23,6 +23,9 @@ where
         let _result = match commands.first() {
             Some(verb) => match *verb {
                 "get" => {
+                    if spreadsheet.is_self_referential() {
+                        continue;
+                    }
                     let cell: &str = match commands.get(1) {
                         Some(val) => *val,
                         None => {
@@ -40,9 +43,6 @@ where
                 }
 
                 "set" => {
-                    if spreadsheet.is_self_referential() {
-                        continue;
-                    }
                     let cell: &str = match commands.get(1) {
                         Some(val) => *val,
                         None => {
