@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use petgraph::{
-    algo::toposort,
+    algo::{is_cyclic_directed, toposort},
     graph::{DiGraph, NodeIndex},
     visit::{Dfs, Walker},
 };
@@ -112,6 +112,10 @@ impl Spreadsheet {
                 .first()
                 .expect("we checked that `errors` is not empty")
                 .to_string());
+        }
+
+        if is_cyclic_directed(&self.dependency_graph) {
+            return Err(String::from(format!("Graph is self-referentiial")));
         }
 
         Ok(())

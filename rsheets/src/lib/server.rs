@@ -54,7 +54,11 @@ where
                         send.write_message(Reply::Error(format!("Insufficient command length. Expected an expression to set the value of cell {cell} to.")))?;
                         continue;
                     };
-                    spreadsheet.set(cell.into(), commands[2..].join(" "))?;
+
+                    if let Err(e) = spreadsheet.set(cell.into(), commands[2..].join(" ")) {
+                        send.write_message(Reply::Error(e))?;
+                        continue;
+                    };
 
                     Ok(())
                 }
