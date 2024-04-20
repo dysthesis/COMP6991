@@ -1,9 +1,9 @@
-use std::{borrow::BorrowMut, collections::HashMap};
+use std::collections::HashMap;
 
 use petgraph::{
     algo::{is_cyclic_directed, toposort},
     graph::{DiGraph, NodeIndex},
-    visit::{Bfs, Dfs, Walker},
+    visit::{Bfs, Walker},
 };
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use rsheet_lib::{cell_value::CellValue, command_runner::CommandRunner};
@@ -162,7 +162,7 @@ impl Spreadsheet {
         };
 
         let errors: Vec<String> = to_update.iter().fold(Vec::new(), |mut acc, node| {
-            let cell_id = match self.dependency_graph.node_weight(*node) {
+            let cell_id = match subgraph.node_weight(*node) {
                 Some(id) => id,
                 None => {
                     let index = node.index();
