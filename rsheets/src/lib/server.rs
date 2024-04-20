@@ -14,7 +14,10 @@ where
     let mut spreadsheet: Spreadsheet = Spreadsheet::new();
     loop {
         info!("Just got message");
-        let msg: String = recv.read_message()?;
+        let msg: String = match recv.read_message() {
+            Ok(msg) => msg,
+            Err(_) => return Ok(()),
+        };
         let commands: Vec<&str> = msg.split_whitespace().collect::<Vec<&str>>();
 
         let _result = match commands.first() {
