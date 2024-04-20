@@ -85,7 +85,7 @@ impl Spreadsheet {
         let dependencies: Vec<String> = command
             .find_variables()
             .par_iter()
-            .map(|x| dbg!(list_cells_in_range(x)))
+            .map(|x| list_cells_in_range(x))
             .flatten()
             .flatten()
             .flatten()
@@ -169,7 +169,7 @@ impl Spreadsheet {
                 }
             };
 
-            if let Err(e) = self.update_cell(dbg!(cell_id.to_string())) {
+            if let Err(e) = self.update_cell(cell_id.to_string()) {
                 acc.push(e);
             };
             return acc;
