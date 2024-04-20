@@ -1,5 +1,4 @@
-use std::collections::HashMap;
-
+use crate::command::{command_variable_finder, list_cells_in_range};
 use petgraph::{
     algo::{is_cyclic_directed, toposort},
     graph::{DiGraph, NodeIndex},
@@ -7,8 +6,7 @@ use petgraph::{
 };
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use rsheet_lib::{cell_value::CellValue, command_runner::CommandRunner};
-
-use crate::command::{command_variable_finder, list_cells_in_range};
+use std::collections::HashMap;
 
 pub(crate) struct Cell {
     pub(crate) value: CellValue,

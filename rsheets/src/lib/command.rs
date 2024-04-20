@@ -1,8 +1,9 @@
 use crate::spreadsheet::Spreadsheet;
-use rsheet_lib::cell_value::CellValue;
-use rsheet_lib::cells::{column_name_to_number, column_number_to_name};
-use rsheet_lib::command_runner::CellArgument;
-use rsheet_lib::command_runner::CommandRunner;
+use rsheet_lib::{
+    cell_value::CellValue,
+    cells::{column_name_to_number, column_number_to_name},
+    command_runner::{CellArgument, CommandRunner},
+};
 use std::collections::HashMap;
 
 pub(crate) fn command_variable_finder(

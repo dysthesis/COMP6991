@@ -1,8 +1,6 @@
 use crate::spreadsheet::Spreadsheet;
 use log::info;
-use rsheet_lib::connect::Manager;
-use rsheet_lib::connect::Reader;
-use rsheet_lib::connect::Writer;
+use rsheet_lib::connect::{Manager, Reader, Writer};
 use rsheet_lib::replies::Reply;
 use std::error::Error;
 
