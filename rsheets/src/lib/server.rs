@@ -1,5 +1,6 @@
 use crate::spreadsheet::Spreadsheet;
 use log::info;
+use rsheet_lib::cell_value::CellValue;
 use rsheet_lib::connect::{Manager, Reader, Writer};
 use rsheet_lib::replies::Reply;
 use std::error::Error;
@@ -33,11 +34,8 @@ where
                             continue;
                         }
                     };
-                    let reply = match spreadsheet.get(cell.to_string()) {
-                        Ok(val) => Reply::Value(cell.to_string(), val),
-                        Err(e) => Reply::Error(e.to_string()),
-                    };
-                    send.write_message(reply)
+                    let val: CellValue = spreadsheet.get(cell.to_string()).unwrap_or_default();
+                    send.write_message(Reply::Value(cell.to_string(), val))
                 }
 
                 "set" => {

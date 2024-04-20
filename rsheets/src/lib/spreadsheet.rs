@@ -67,10 +67,10 @@ impl Spreadsheet {
         self.update_dependents(key)
     }
 
-    pub(crate) fn get(&self, key: String) -> Result<CellValue, String> {
+    pub(crate) fn get(&self, key: String) -> Option<CellValue> {
         match self.cells.get(&key) {
-            Some(val) => Ok(val.value.clone()),
-            None => Err(format!("no cells found for key {key}")),
+            Some(val) => Some(val.value.clone()),
+            None => None,
         }
     }
 
