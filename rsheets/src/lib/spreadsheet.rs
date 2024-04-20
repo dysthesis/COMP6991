@@ -1,9 +1,9 @@
-use std::collections::HashMap;
+use std::{borrow::BorrowMut, collections::HashMap};
 
 use petgraph::{
     algo::{is_cyclic_directed, toposort},
     graph::{DiGraph, NodeIndex},
-    visit::{Dfs, Walker},
+    visit::{Bfs, Dfs, Walker},
 };
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use rsheet_lib::{cell_value::CellValue, command_runner::CommandRunner};
@@ -129,7 +129,7 @@ impl Spreadsheet {
             }
         };
 
-        let dependents: Vec<NodeIndex> = Dfs::new(&self.dependency_graph, start.to_owned())
+        let dependents: Vec<NodeIndex> = Bfs::new(&self.dependency_graph, start.to_owned())
             .iter(&self.dependency_graph)
             .collect();
 
