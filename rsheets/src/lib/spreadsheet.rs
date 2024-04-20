@@ -5,6 +5,7 @@ use petgraph::{
     graph::{DiGraph, NodeIndex},
     visit::{Dfs, Walker},
 };
+use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use rsheet_lib::{cell_value::CellValue, command_runner::CommandRunner};
 
 use crate::command::{command_variable_finder, list_cells_in_range};
@@ -83,11 +84,11 @@ impl Spreadsheet {
         let command = CommandRunner::new(&cell.command);
         let dependencies: Vec<String> = command
             .find_variables()
-            .iter()
-            .flat_map(|x| list_cells_in_range(x))
-            // flatten it out
-            .flat_map(|x| x.into_iter())
-            .flat_map(|x| x.into_iter())
+            .par_iter()
+            .map(|x| dbg!(list_cells_in_range(x)))
+            .flatten()
+            .flatten()
+            .flatten()
             .collect();
         let target = match self.nodes.get(&key) {
             Some(node) => node,
@@ -168,7 +169,7 @@ impl Spreadsheet {
                 }
             };
 
-            if let Err(e) = self.update_cell(cell_id.to_string()) {
+            if let Err(e) = self.update_cell(dbg!(cell_id.to_string())) {
                 acc.push(e);
             };
             return acc;
