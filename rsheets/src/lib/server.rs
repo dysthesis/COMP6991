@@ -1,4 +1,4 @@
-use crate::spreadsheet::{self, Spreadsheet};
+use crate::spreadsheet::Spreadsheet;
 use log::info;
 use rsheet_lib::cell_value::CellValue;
 use rsheet_lib::connect::{Manager, Reader, ReaderWriter, Writer};
@@ -23,7 +23,7 @@ where
                 });
             }
             Err(_) => {
-                eprintln!("Failed to accept new connection");
+                info!("Failed to accept new connection");
                 continue;
             }
         }
