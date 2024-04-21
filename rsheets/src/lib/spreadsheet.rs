@@ -78,12 +78,26 @@ impl Spreadsheet {
         }
 
         let cell = match Cell::new(command, &self) {
-            Ok(res) => res,
+            Ok(res) => {
+                // Remove cell from the list of invalid nodes if it is there, since we've checked that it's valid. This is fine because it will be re-added by update_dependency_graph if any of its dependencies are invalid anyways.
+                if self.invalid_nodes.contains(&key) {
+                    info!("The list of invalid nodes contains cell {key}, but we've checked that it is valid. Removing...");
+                    self.invalid_nodes.remove(&key);
+                }
+                res
+            }
             Err(e) => {
+                info!("Marking cell as invalid");
                 self.invalid_nodes.insert(key);
                 return Err(e);
             }
         };
+        if let CellValue::Error(_) = cell.value.clone().lock().clone() {
+            info!("Marking cell as invalid");
+            self.invalid_nodes.insert(key.clone());
+        } else if self.invalid_nodes.contains(&key) {
+            self.invalid_nodes.remove(&key);
+        }
         self.cells.insert(key.clone(), cell);
         info!("Successfully inserted the cell to key {}", key);
         // If this is a new node, add it to the dependency graph
@@ -136,6 +150,17 @@ impl Spreadsheet {
                 return Err(format!("could not find the node index for cell {key}"));
             }
         };
+
+        // Mark self as invalid if any of its dependencies is invalid.
+        dependencies.iter().for_each(|x| {
+            if self.is_invalid_node(x.to_string()) {
+                info!(
+                    "The cell {x} which {key} depends on is invalid. Marking {key} as invalid..."
+                );
+                self.invalid_nodes.insert(key.clone());
+            }
+        });
+
         // Update the dependency graph
         let errors: Vec<String> = dependencies.iter().fold(Vec::new(), |mut acc, x| {
             match self.nodes.get(x) {
@@ -208,6 +233,8 @@ impl Spreadsheet {
                 let cell_id = subgraph
                     .node_weight(e.node_id())
                     .expect("we can't have a cycle on a nonexistent node");
+                self.invalid_nodes.insert(cell_id.to_string());
+                info!("Inserted {cell_id} to the list of invalid nodes due to cycle detected.");
                 return Err(format!("Error: Cycle detected in cell {cell_id}"));
             }
         };

@@ -72,6 +72,10 @@ where
                     }
                     let val: CellValue = spreadsheet.get(cell.to_string()).unwrap_or_default();
                     info!("Value for cell {} is {:?}", cell, val);
+                    if let CellValue::Error(e) = val {
+                        let _ = send.write_message(Reply::Error(e));
+                        continue;
+                    }
                     send.write_message(Reply::Value(cell.to_string(), val))
                 }
 
