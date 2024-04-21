@@ -5,11 +5,14 @@ use parking_lot::Mutex;
 use petgraph::{
     algo::{is_cyclic_directed, toposort},
     graph::{DiGraph, NodeIndex},
-    visit::{Bfs, Walker},
+    visit::{Bfs, EdgeRef, Walker},
 };
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use rsheet_lib::{cell_value::CellValue, command_runner::CommandRunner};
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 pub(crate) struct Cell {
     pub(crate) value: Arc<Mutex<CellValue>>,
@@ -17,20 +20,22 @@ pub(crate) struct Cell {
 }
 
 impl Cell {
-    pub(crate) fn update(&self, spreadsheet: &Spreadsheet) -> Result<Self, String> {
+    pub(crate) fn update(&self, spreadsheet: &Spreadsheet) -> Self {
         Self::new(self.command.lock().clone(), spreadsheet)
     }
-    pub(crate) fn new(command: String, spreadsheet: &Spreadsheet) -> Result<Self, String> {
+    pub(crate) fn new(command: String, spreadsheet: &Spreadsheet) -> Self {
         let runner = CommandRunner::new(command.as_str());
         let variables = match command_variable_finder(&runner, spreadsheet) {
             Ok(variables) => variables,
-            Err(e) => {
-                return Err(e.to_string());
+            Err(_) => {
+                let value = Arc::new(Mutex::new(CellValue::None));
+                let command = Arc::new(Mutex::new(command));
+                return Cell { value, command };
             }
         };
         let value = Arc::new(Mutex::new(runner.run(&variables)));
         let command = Arc::new(Mutex::new(command));
-        Ok(Cell { value, command })
+        Cell { value, command }
     }
 }
 
@@ -77,21 +82,7 @@ impl Spreadsheet {
             self.nodes.insert(key.clone(), new_node);
         }
 
-        let cell = match Cell::new(command, &self) {
-            Ok(res) => {
-                // Remove cell from the list of invalid nodes if it is there, since we've checked that it's valid. This is fine because it will be re-added by update_dependency_graph if any of its dependencies are invalid anyways.
-                if self.invalid_nodes.contains(&key) {
-                    info!("The list of invalid nodes contains cell {key}, but we've checked that it is valid. Removing...");
-                    self.invalid_nodes.remove(&key);
-                }
-                res
-            }
-            Err(e) => {
-                info!("Marking cell as invalid");
-                self.invalid_nodes.insert(key);
-                return Err(e);
-            }
-        };
+        let cell = Cell::new(command, &self);
 
         self.cells.insert(key.clone(), cell);
         info!("Successfully inserted the cell to key {}", key);
@@ -99,6 +90,12 @@ impl Spreadsheet {
 
         info!("Updating the dependency graph from key {key}");
         self.update_dependency_graph(key.clone())?;
+
+        if !self.is_self_referential() {
+            info!("We've checked that the graph is not self-referential. Clearing the set of invalid nodes...");
+            self.invalid_nodes.clear();
+        }
+
         info!("Dependency graph updated!");
         self.update_dependents(key)
     }
@@ -122,14 +119,17 @@ impl Spreadsheet {
     }
 
     fn update_dependency_graph(&self, key: String) -> Result<(), String> {
+        info!("Hello from Spreadsheet::update_dependency_graph!");
         let cell = match self.cells.get(&key) {
             Some(cell) => cell,
             None => {
+                info!("No cells with that key found.");
                 return Err(format!(
                     "can't update dependency graph because no cell is found for key {key}"
-                ))
+                ));
             }
         };
+        info!("Found the referenced cell");
         let command = CommandRunner::new(&cell.command.lock());
         let dependencies: Vec<String> = command
             .find_variables()
@@ -139,13 +139,34 @@ impl Spreadsheet {
             .flatten()
             .flatten()
             .collect();
+        info!(
+            "Found the list of dependencies for cell {}: {:?}",
+            key, dependencies
+        );
         let target = match self.nodes.get(&key) {
             Some(node) => node,
             None => {
                 return Err(format!("could not find the node index for cell {key}"));
             }
         };
+        info!("Found the node for that dependency");
+        let mut graph = self.dependency_graph.lock();
+        let existing_dependencies: HashSet<NodeIndex> = graph
+            .edges_directed(target.to_owned(), petgraph::Direction::Incoming)
+            .map(|edge| edge.source())
+            .collect();
 
+        // get rid of obsolete dependencies
+        existing_dependencies
+            .iter()
+            .for_each(|dependency| if !dependencies.contains(graph.node_weight(*dependency).expect("we obtained the set of nodes by previously iterating through existing edges, and the graph is locked since then")) {
+                info!("The dependency {} is obsolete. Scrubbing...", graph.node_weight(*dependency).expect("if it worked above, it should work here"));
+                let edge = graph.find_edge(*dependency, *target).expect("the `existing_dependencies` set is constructed by iterating through existing edges");
+                graph.remove_edge(edge);
+            });
+        info!("Scrubbed obsolete dependencies");
+
+        info!("Checking for invalid dependencies");
         // Mark self as invalid if any of its dependencies is invalid.
         dependencies.iter().for_each(|x| {
             let cell = match self.cells.get(x) {
@@ -159,27 +180,23 @@ impl Spreadsheet {
                 self.invalid_nodes.insert(key.clone());
             }
         });
+        info!("Checked invalid dependencies");
 
         // Update the dependency graph
         dependencies.iter().for_each(|x| {
             match self.nodes.get(x) {
                 Some(node) => {
-                    self.dependency_graph
-                        .lock()
-                        .add_edge(node.to_owned(), target.to_owned(), ());
+                    if !existing_dependencies.contains(&node.to_owned()) {
+                        graph.add_edge(node.to_owned(), target.to_owned(), ());
+                    }
                 }
                 None => {
-                    let mut graph = self.dependency_graph.lock();
                     let new_node = graph.add_node(x.clone());
                     graph.add_edge(new_node, target.to_owned(), ());
                     self.nodes.insert(x.clone(), new_node);
                 }
             };
         });
-
-        if is_cyclic_directed(&*self.dependency_graph.lock()) {
-            return Err(String::from(format!("Graph is self-referentiial")));
-        }
 
         Ok(())
     }
@@ -226,7 +243,12 @@ impl Spreadsheet {
         info!("Constructed a subgraph of dependents for cell");
 
         let to_update = match toposort(&subgraph, None) {
-            Ok(res) => res,
+            Ok(res) => {
+                if self.invalid_nodes.contains(&key) {
+                    self.invalid_nodes.remove(&key);
+                }
+                res
+            }
             Err(e) => {
                 let cell_id = subgraph
                     .node_weight(e.node_id())
@@ -280,7 +302,7 @@ impl Spreadsheet {
             }
         };
         info!("Found the relevant cell to update.");
-        let updated_cell = cell.update(self)?;
+        let updated_cell = cell.update(self);
         info!("Obtained new, updated copy of the cell.");
         self.cells.insert(key, updated_cell);
         info!("Inserted the new updated cell");
