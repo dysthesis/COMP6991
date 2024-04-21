@@ -143,6 +143,7 @@ impl Spreadsheet {
             "Found the list of dependencies for cell {}: {:?}",
             key, dependencies
         );
+
         let target = match self.nodes.get(&key) {
             Some(node) => node,
             None => {
@@ -211,35 +212,36 @@ impl Spreadsheet {
         };
         info!("Found node index associated with the cell");
 
-        let dependency_graph = self.dependency_graph.lock().clone();
-        let dependents: Vec<NodeIndex> = Bfs::new(&dependency_graph, start.to_owned())
-            .iter(&dependency_graph)
-            .collect();
+        info!("Constructing subgraph of dependents");
+        let subgraph = {
+            let dependency_graph = self.dependency_graph.lock().clone();
+            let dependents: Vec<NodeIndex> = Bfs::new(&dependency_graph, start.to_owned())
+                .iter(&dependency_graph)
+                .collect();
 
-        info!("Found list of cells dependent on {key}");
-
-        let subgraph = dependency_graph.filter_map(
-            |id, node| {
-                if dependents.contains(&id) {
-                    Some(node.clone())
-                } else {
-                    None
-                }
-            },
-            |id, edge| {
-                let (source, target) = self
-                    .dependency_graph
-                    .clone()
-                    .lock()
-                    .edge_endpoints(id)
-                    .unwrap();
-                if dependents.contains(&source) && dependents.contains(&target) {
-                    Some(edge.clone())
-                } else {
-                    None
-                }
-            },
-        );
+            dependency_graph.filter_map(
+                |id, node| {
+                    if dependents.contains(&id) {
+                        Some(node.clone())
+                    } else {
+                        None
+                    }
+                },
+                |id, edge| {
+                    let (source, target) = self
+                        .dependency_graph
+                        .clone()
+                        .lock()
+                        .edge_endpoints(id)
+                        .unwrap();
+                    if dependents.contains(&source) && dependents.contains(&target) {
+                        Some(edge.clone())
+                    } else {
+                        None
+                    }
+                },
+            )
+        };
         info!("Constructed a subgraph of dependents for cell");
 
         let to_update = match toposort(&subgraph, None) {
