@@ -42,9 +42,6 @@ where
         let _result = match commands.first() {
             Some(verb) => match *verb {
                 "get" => {
-                    if spreadsheet.is_self_referential() {
-                        continue;
-                    }
                     info!("Attempting to get a cell's value");
                     let cell: &str = match commands.get(1) {
                         Some(val) => {
@@ -60,6 +57,13 @@ where
                             continue;
                         }
                     };
+                    if spreadsheet.is_self_referential() {
+                        let _ = send.write_message(Reply::Error(String::from(format!(
+                            "The value for cell {cell} is invalid"
+                        ))));
+
+                        continue;
+                    }
                     if spreadsheet.is_invalid_node(cell.to_string()) {
                         let _ = send.write_message(Reply::Error(String::from(format!(
                             "The value for cell {cell} is invalid"
