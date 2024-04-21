@@ -24,10 +24,11 @@ where
             }
             Err(_) => {
                 info!("Failed to accept new connection");
-                continue;
+                break;
             }
         }
     }
+    Ok(())
 }
 fn handle_connection<M>(
     mut recv: <<M as Manager>::ReaderWriter as ReaderWriter>::Reader,
