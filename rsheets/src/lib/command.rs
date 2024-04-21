@@ -15,7 +15,7 @@ pub(crate) fn command_variable_finder(
     referenced.iter().try_fold(HashMap::new(), |mut acc, key| {
                             if key.contains("_") {
                                 let cell_names = list_cells_in_range(key)?;
-                                let cell_values: HashMap<String, CellValue> = spreadsheet.cells.iter().map(|(key, val)| (key.clone(), val.value.clone())).collect();
+                                let cell_values: HashMap<String, CellValue> = spreadsheet.get_values();
                                 let values_matrix = cells_to_value(cell_names, &cell_values)?;
                                 if values_matrix.len() == 1 {
                                     acc.insert(
@@ -27,7 +27,7 @@ pub(crate) fn command_variable_finder(
                                 }
                             } else {
                                 if let Some(cell) = spreadsheet.cells.get(key) {
-                                    acc.insert(key.clone(), CellArgument::Value(cell.value.clone()));
+                                    acc.insert(key.clone(), CellArgument::Value(cell.value.clone().lock().clone()));
                                 } else {
                                     return Err("Missing key for individual cell reference");
                                 }

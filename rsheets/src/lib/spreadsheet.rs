@@ -1,4 +1,7 @@
 use crate::command::{command_variable_finder, list_cells_in_range};
+use dashmap::DashMap;
+use log::info;
+use parking_lot::Mutex;
 use petgraph::{
     algo::{is_cyclic_directed, toposort},
     graph::{DiGraph, NodeIndex},
@@ -6,16 +9,16 @@ use petgraph::{
 };
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use rsheet_lib::{cell_value::CellValue, command_runner::CommandRunner};
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
 pub(crate) struct Cell {
-    pub(crate) value: CellValue,
-    pub(crate) command: String,
+    pub(crate) value: Arc<Mutex<CellValue>>,
+    pub(crate) command: Arc<Mutex<String>>,
 }
 
 impl Cell {
     pub(crate) fn update(&self, spreadsheet: &Spreadsheet) -> Result<Self, String> {
-        Self::new(self.command.clone(), spreadsheet)
+        Self::new(self.command.clone().lock().clone(), spreadsheet)
     }
     pub(crate) fn new(command: String, spreadsheet: &Spreadsheet) -> Result<Self, String> {
         let runner = CommandRunner::new(command.as_str());
@@ -25,9 +28,18 @@ impl Cell {
                 return Err(e.to_string());
             }
         };
-        let value = runner.run(&variables);
-
+        let value = Arc::new(Mutex::new(runner.run(&variables)));
+        let command = Arc::new(Mutex::new(command));
         Ok(Cell { value, command })
+    }
+}
+
+impl Clone for Cell {
+    fn clone(&self) -> Self {
+        Self {
+            value: Arc::new(Mutex::new(self.value.clone().lock().clone())),
+            command: Arc::new(Mutex::new(self.command.clone().lock().clone())),
+        }
     }
 }
 
@@ -36,45 +48,58 @@ pub(crate) struct Spreadsheet {
     /// A hashmap which stores all of the values in the spreadsheet.
     /// Consists of a key, a String, which represents the cell number,
     /// and a value, the corresponding CellValue
-    pub(crate) cells: HashMap<String, Cell>,
-    pub(crate) dependency_graph: DiGraph<String, ()>,
-    pub(crate) nodes: HashMap<String, NodeIndex>,
+    pub(crate) cells: DashMap<String, Cell>,
+    pub(crate) dependency_graph: Arc<Mutex<DiGraph<String, ()>>>,
+    pub(crate) nodes: DashMap<String, NodeIndex>,
 }
 
 impl Spreadsheet {
     pub(crate) fn new() -> Self {
         Spreadsheet {
-            cells: HashMap::new(),
-            dependency_graph: DiGraph::new(),
-            nodes: HashMap::new(),
+            cells: DashMap::new(),
+            dependency_graph: Arc::new(Mutex::new(DiGraph::new())),
+            nodes: DashMap::new(),
         }
     }
 
     pub(crate) fn is_self_referential(&self) -> bool {
-        is_cyclic_directed(&self.dependency_graph)
+        is_cyclic_directed(&*self.dependency_graph.clone().lock())
     }
 
-    pub(crate) fn set(&mut self, key: String, command: String) -> Result<(), String> {
+    pub(crate) fn set(&self, key: String, command: String) -> Result<(), String> {
+        info!("In Spreadsheet::set(): setting the value for {key} to {command}");
         let cell = Cell::new(command, &self)?;
         self.cells.insert(key.clone(), cell);
+        info!("Successfully inserted the cell to key {}", key);
         // If this is a new node, add it to the dependency graph
 
         if !self.nodes.contains_key(&key) {
-            let new_node = self.dependency_graph.add_node(key.clone());
+            info!("Inserting node for key {key} to dependency graph");
+            let new_node = self.dependency_graph.clone().lock().add_node(key.clone());
+            info!("Inserting node index to hash map");
             self.nodes.insert(key.clone(), new_node);
         }
+        info!("Updating the dependency graph from key {key}");
         self.update_dependency_graph(key.clone())?;
+        info!("Dependency graph updated!");
         self.update_dependents(key)
     }
 
     pub(crate) fn get(&self, key: String) -> Option<CellValue> {
         match self.cells.get(&key) {
-            Some(val) => Some(val.value.clone()),
+            Some(val) => Some(val.value.clone().lock().clone()),
             None => None,
         }
     }
 
-    fn update_dependency_graph(&mut self, key: String) -> Result<(), String> {
+    pub(crate) fn get_values(&self) -> HashMap<String, CellValue> {
+        self.cells.iter().fold(HashMap::new(), |mut acc, x| {
+            acc.insert(x.key().to_string(), x.value().value.clone().lock().clone());
+            acc
+        })
+    }
+
+    fn update_dependency_graph(&self, key: String) -> Result<(), String> {
         let cell = match self.cells.get(&key) {
             Some(cell) => cell,
             None => {
@@ -83,7 +108,7 @@ impl Spreadsheet {
                 ))
             }
         };
-        let command = CommandRunner::new(&cell.command);
+        let command = CommandRunner::new(&cell.command.clone().lock());
         let dependencies: Vec<String> = command
             .find_variables()
             .par_iter()
@@ -101,9 +126,9 @@ impl Spreadsheet {
         // Update the dependency graph
         let errors: Vec<String> = dependencies.iter().fold(Vec::new(), |mut acc, x| {
             match self.nodes.get(x) {
-                Some(node) => { self
-                    .dependency_graph
-                    .add_edge(node.to_owned(), target.to_owned(), ()); },
+                Some(node) => {
+                    self.dependency_graph.clone().lock().add_edge(node.to_owned(), target.to_owned(), ());
+                },
                 None => {acc.push(format!("the dependency {x} for cell {key} does not have a node in the dependency graph"));}
             };
             return acc;
@@ -116,26 +141,31 @@ impl Spreadsheet {
                 .to_string());
         }
 
-        if is_cyclic_directed(&self.dependency_graph) {
+        if is_cyclic_directed(&*self.dependency_graph.clone().lock()) {
             return Err(String::from(format!("Graph is self-referentiial")));
         }
 
         Ok(())
     }
 
-    fn update_dependents(&mut self, key: String) -> Result<(), String> {
+    fn update_dependents(&self, key: String) -> Result<(), String> {
+        info!("Updating the dependents of cell {key}");
         let start = match self.nodes.get(&key) {
             Some(index) => index,
             None => {
                 return Err(format!("cannot find the node index for cell {key}"));
             }
         };
+        info!("Found node index associated with the cell");
 
-        let dependents: Vec<NodeIndex> = Bfs::new(&self.dependency_graph, start.to_owned())
-            .iter(&self.dependency_graph)
+        let dependency_graph = self.dependency_graph.clone().lock().clone();
+        let dependents: Vec<NodeIndex> = Bfs::new(&dependency_graph, start.to_owned())
+            .iter(&dependency_graph)
             .collect();
 
-        let subgraph = self.dependency_graph.filter_map(
+        info!("Found list of cells dependent on {key}");
+
+        let subgraph = dependency_graph.filter_map(
             |id, node| {
                 if dependents.contains(&id) {
                     Some(node.clone())
@@ -144,7 +174,12 @@ impl Spreadsheet {
                 }
             },
             |id, edge| {
-                let (source, target) = self.dependency_graph.edge_endpoints(id).unwrap();
+                let (source, target) = self
+                    .dependency_graph
+                    .clone()
+                    .lock()
+                    .edge_endpoints(id)
+                    .unwrap();
                 if dependents.contains(&source) && dependents.contains(&target) {
                     Some(edge.clone())
                 } else {
@@ -152,6 +187,7 @@ impl Spreadsheet {
                 }
             },
         );
+        info!("Constructed a subgraph of dependents for cell");
 
         let to_update = match toposort(&subgraph, None) {
             Ok(res) => res,
@@ -162,6 +198,7 @@ impl Spreadsheet {
                 return Err(format!("Error: Cycle detected in cell {cell_id}"));
             }
         };
+        info!("Topologically sorted the dependent cells, proceeding to update their values...");
 
         let errors: Vec<String> = to_update.iter().fold(Vec::new(), |mut acc, node| {
             let cell_id = match subgraph.node_weight(*node) {
@@ -174,13 +211,15 @@ impl Spreadsheet {
                     return acc;
                 }
             };
-
+            info!("Updating the value for cell {cell_id}");
             if let Err(e) = self.update_cell(cell_id.to_string()) {
+                info!("Failed to update value for cell {cell_id}");
                 acc.push(e);
             };
             return acc;
         });
 
+        info!("Updated the values for cell dependents, checking for errors...");
         if !errors.is_empty() {
             return Err(errors
                 .first()
@@ -188,20 +227,25 @@ impl Spreadsheet {
                 .to_string());
         }
 
+        info!("Successfully updated dependent cells!");
         Ok(())
     }
 
-    fn update_cell(&mut self, key: String) -> Result<(), String> {
+    fn update_cell(&self, key: String) -> Result<(), String> {
+        info!("Updating the value for cell {key}.");
         let cell = match self.cells.get(&key) {
-            Some(val) => val,
+            Some(val) => val.clone(),
             None => {
                 return Err(String::from(format!(
                     "Cannot find cell associated with the key {key}"
                 )));
             }
         };
+        info!("Found the relevant cell to update.");
         let updated_cell = cell.update(self)?;
+        info!("Obtained new, updated copy of the cell.");
         self.cells.insert(key, updated_cell);
+        info!("Inserted the new updated cell");
         Ok(())
     }
 }

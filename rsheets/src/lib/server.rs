@@ -10,7 +10,7 @@ where
     M: Manager,
 {
     let (mut recv, mut send) = manager.accept_new_connection().unwrap();
-    let mut spreadsheet: Spreadsheet = Spreadsheet::new();
+    let spreadsheet = Spreadsheet::new();
     loop {
         info!("Just got message");
         let msg: String = match recv.read_message() {
@@ -22,12 +22,14 @@ where
         let _result = match commands.first() {
             Some(verb) => match *verb {
                 "get" => {
-                    if spreadsheet.is_self_referential() {
-                        continue;
-                    }
+                    info!("Attempting to get a cell's value");
                     let cell: &str = match commands.get(1) {
-                        Some(val) => *val,
+                        Some(val) => {
+                            info!("Found cell name: {val}");
+                            *val
+                        }
                         None => {
+                            info!("No cell name found");
                             send.write_message(Reply::Error(format!(
                                 "Insufficient arguments for 'get' command. Expected a cell number."
                             )))?;
@@ -35,13 +37,19 @@ where
                         }
                     };
                     let val: CellValue = spreadsheet.get(cell.to_string()).unwrap_or_default();
+                    info!("Value for cell {} is {:?}", cell, val);
                     send.write_message(Reply::Value(cell.to_string(), val))
                 }
 
                 "set" => {
+                    info!("Attempting to set a cell's value");
                     let cell: &str = match commands.get(1) {
-                        Some(val) => *val,
+                        Some(val) => {
+                            info!("Found cell name: {val}");
+                            *val
+                        }
                         None => {
+                            info!("No cell name found");
                             send.write_message(Reply::Error(format!(
                                 "Insufficient arguments for 'set' command. Expected a cell number."
                             )))?;
@@ -50,15 +58,19 @@ where
                     };
 
                     if commands.len() < 3 {
+                        info!("No value to set the cell {cell}'s value to.");
                         send.write_message(Reply::Error(format!("Insufficient command length. Expected an expression to set the value of cell {cell} to.")))?;
                         continue;
                     };
 
                     if let Err(e) = spreadsheet.set(cell.into(), commands[2..].join(" ")) {
+                        info!("Got error {e} when attempting to set the cell {cell}'s value");
                         send.write_message(Reply::Error(e))?;
                         continue;
                     };
 
+                    let value = commands[2..].join(" ");
+                    info!("Successfully set the cell {cell}'s value to {value}");
                     Ok(())
                 }
                 _ => {
