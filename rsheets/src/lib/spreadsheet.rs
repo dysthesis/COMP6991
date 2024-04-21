@@ -118,27 +118,42 @@ impl Spreadsheet {
         })
     }
 
-    fn update_dependency_graph(&self, key: String) -> Result<(), String> {
-        info!("Hello from Spreadsheet::update_dependency_graph!");
-        let cell = match self.cells.get(&key) {
+    fn get_dependencies(&self, key: &String) -> Vec<String> {
+        let cell = match self.cells.get(key) {
             Some(cell) => cell,
             None => {
-                info!("No cells with that key found.");
-                return Err(format!(
-                    "can't update dependency graph because no cell is found for key {key}"
-                ));
+                return Vec::new();
             }
         };
-        info!("Found the referenced cell");
         let command = CommandRunner::new(&cell.command.lock());
-        let dependencies: Vec<String> = command
+        command
             .find_variables()
             .par_iter()
             .map(|x| list_cells_in_range(x))
             .flatten()
             .flatten()
             .flatten()
-            .collect();
+            .collect()
+    }
+
+    pub(crate) fn has_invalid_dependencies(&self, key: &String) -> bool {
+        let dependencies = self.get_dependencies(key);
+        let error_dependencies: i32 = dependencies
+            .iter()
+            .filter_map(|dep| self.cells.get(dep))
+            .fold(0, |mut acc, x| {
+                if let CellValue::Error(_) = x.value.lock().clone() {
+                    acc += 1;
+                }
+                return acc;
+            });
+        error_dependencies != 0i32
+    }
+
+    fn update_dependency_graph(&self, key: String) -> Result<(), String> {
+        info!("Hello from Spreadsheet::update_dependency_graph!");
+
+        let dependencies = self.get_dependencies(&key);
         info!(
             "Found the list of dependencies for cell {}: {:?}",
             key, dependencies
@@ -166,22 +181,6 @@ impl Spreadsheet {
                 graph.remove_edge(edge);
             });
         info!("Scrubbed obsolete dependencies");
-
-        info!("Checking for invalid dependencies");
-        // Mark self as invalid if any of its dependencies is invalid.
-        dependencies.iter().for_each(|x| {
-            let cell = match self.cells.get(x) {
-                Some(res) => res.clone().value.lock().clone(),
-                None => CellValue::None,
-            };
-            if let CellValue::Error(_) = cell {
-                info!(
-                    "The cell {x} which {key} depends on is invalid. Marking {key} as invalid..."
-                );
-                self.invalid_nodes.insert(key.clone());
-            }
-        });
-        info!("Checked invalid dependencies");
 
         // Update the dependency graph
         dependencies.iter().for_each(|x| {

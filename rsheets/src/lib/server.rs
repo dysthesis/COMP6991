@@ -70,6 +70,13 @@ where
                         ))));
                         continue;
                     }
+
+                    if spreadsheet.has_invalid_dependencies(&cell.to_string()) {
+                        let _ = send.write_message(Reply::Error(String::from(format!(
+                            "The value for cell {cell} is invalid"
+                        ))));
+                        continue;
+                    }
                     let val: CellValue = spreadsheet.get(cell.to_string()).unwrap_or_default();
                     info!("Value for cell {} is {:?}", cell, val);
                     send.write_message(Reply::Value(cell.to_string(), val))
