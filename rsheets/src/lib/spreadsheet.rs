@@ -92,12 +92,7 @@ impl Spreadsheet {
                 return Err(e);
             }
         };
-        if let CellValue::Error(_) = cell.value.clone().lock().clone() {
-            info!("Marking cell as invalid");
-            self.invalid_nodes.insert(key.clone());
-        } else if self.invalid_nodes.contains(&key) {
-            self.invalid_nodes.remove(&key);
-        }
+
         self.cells.insert(key.clone(), cell);
         info!("Successfully inserted the cell to key {}", key);
         // If this is a new node, add it to the dependency graph
@@ -153,7 +148,11 @@ impl Spreadsheet {
 
         // Mark self as invalid if any of its dependencies is invalid.
         dependencies.iter().for_each(|x| {
-            if self.is_invalid_node(x.to_string()) {
+            let cell = match self.cells.get(x) {
+                Some(res) => res.clone().value.clone().lock().clone(),
+                None => CellValue::None,
+            };
+            if let CellValue::Error(_) = cell {
                 info!(
                     "The cell {x} which {key} depends on is invalid. Marking {key} as invalid..."
                 );
