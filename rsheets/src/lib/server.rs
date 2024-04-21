@@ -22,6 +22,9 @@ where
         let _result = match commands.first() {
             Some(verb) => match *verb {
                 "get" => {
+                    if spreadsheet.is_self_referential() {
+                        continue;
+                    }
                     info!("Attempting to get a cell's value");
                     let cell: &str = match commands.get(1) {
                         Some(val) => {
