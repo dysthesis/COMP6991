@@ -1,16 +1,42 @@
-use crate::spreadsheet::Spreadsheet;
+use crate::spreadsheet::{self, Spreadsheet};
 use log::info;
 use rsheet_lib::cell_value::CellValue;
-use rsheet_lib::connect::{Manager, Reader, Writer};
+use rsheet_lib::connect::{Manager, Reader, ReaderWriter, Writer};
 use rsheet_lib::replies::Reply;
 use std::error::Error;
+use std::sync::Arc;
+use std::thread;
 
 pub fn start_server<M>(mut manager: M) -> Result<(), Box<dyn Error>>
 where
     M: Manager,
 {
-    let (mut recv, mut send) = manager.accept_new_connection().unwrap();
-    let spreadsheet = Spreadsheet::new();
+    let spreadsheet = Arc::new(Spreadsheet::new());
+    loop {
+        match manager.accept_new_connection() {
+            Ok((recv, send)) => {
+                let recv: <<M as Manager>::ReaderWriter as ReaderWriter>::Reader = recv;
+                let send: <<M as Manager>::ReaderWriter as ReaderWriter>::Writer = send;
+                let ss: Arc<Spreadsheet> = spreadsheet.clone();
+                thread::spawn(move || -> Result<(), String> {
+                    handle_connection::<M>(recv, send, ss)
+                });
+            }
+            Err(_) => {
+                eprintln!("Failed to accept new connection");
+                continue;
+            }
+        }
+    }
+}
+fn handle_connection<M>(
+    mut recv: <<M as Manager>::ReaderWriter as ReaderWriter>::Reader,
+    mut send: <<M as Manager>::ReaderWriter as ReaderWriter>::Writer,
+    spreadsheet: Arc<Spreadsheet>,
+) -> Result<(), String>
+where
+    M: Manager,
+{
     loop {
         info!("Just got message");
         let msg: String = match recv.read_message() {
@@ -33,9 +59,10 @@ where
                         }
                         None => {
                             info!("No cell name found");
-                            send.write_message(Reply::Error(format!(
+                            // Try to fix the fact that Box<dyn Error>> isn't Send
+                            let _ = send.write_message(Reply::Error(format!(
                                 "Insufficient arguments for 'get' command. Expected a cell number."
-                            )))?;
+                            )));
                             continue;
                         }
                     };
@@ -53,22 +80,22 @@ where
                         }
                         None => {
                             info!("No cell name found");
-                            send.write_message(Reply::Error(format!(
+                            let _ = send.write_message(Reply::Error(format!(
                                 "Insufficient arguments for 'set' command. Expected a cell number."
-                            )))?;
+                            )));
                             continue;
                         }
                     };
 
                     if commands.len() < 3 {
                         info!("No value to set the cell {cell}'s value to.");
-                        send.write_message(Reply::Error(format!("Insufficient command length. Expected an expression to set the value of cell {cell} to.")))?;
+                        let _ = send.write_message(Reply::Error(format!("Insufficient command length. Expected an expression to set the value of cell {cell} to.")));
                         continue;
                     };
 
                     if let Err(e) = spreadsheet.set(cell.into(), commands[2..].join(" ")) {
                         info!("Got error {e} when attempting to set the cell {cell}'s value");
-                        send.write_message(Reply::Error(e))?;
+                        let _ = send.write_message(Reply::Error(e));
                         continue;
                     };
 
@@ -77,7 +104,7 @@ where
                     Ok(())
                 }
                 _ => {
-                    send.write_message(Reply::Error(format!("Unrecognised command.")))?;
+                    let _ = send.write_message(Reply::Error(format!("Unrecognised command.")));
                     continue;
                 }
             },
