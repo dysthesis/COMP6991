@@ -12,10 +12,13 @@ where
     M: Manager,
 {
     let spreadsheet = Arc::new(Spreadsheet::new());
-    while let Ok((recv, send)) = manager.accept_new_connection() {
-        let ss = spreadsheet.clone();
-        thread::spawn(move || handle_connection::<M>(recv, send, ss));
-    }
+
+    thread::scope(|s| {
+        while let Ok((recv, send)) = manager.accept_new_connection() {
+            let ss = spreadsheet.clone();
+            s.spawn(move || handle_connection::<M>(recv, send, ss));
+        }
+    });
 
     // If it got to this point, it probably failed to receive new connection
     Ok(())
