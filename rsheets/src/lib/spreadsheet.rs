@@ -1,5 +1,5 @@
 use crate::command::{command_variable_finder, list_cells_in_range};
-use dashmap::DashMap;
+use dashmap::{DashMap, DashSet};
 use log::info;
 use parking_lot::Mutex;
 use petgraph::{
@@ -51,6 +51,7 @@ pub(crate) struct Spreadsheet {
     pub(crate) cells: DashMap<String, Cell>,
     pub(crate) dependency_graph: Arc<Mutex<DiGraph<String, ()>>>,
     pub(crate) nodes: DashMap<String, NodeIndex>,
+    pub(crate) invalid_nodes: DashSet<String>,
 }
 
 impl Spreadsheet {
@@ -59,6 +60,7 @@ impl Spreadsheet {
             cells: DashMap::new(),
             dependency_graph: Arc::new(Mutex::new(DiGraph::new())),
             nodes: DashMap::new(),
+            invalid_nodes: DashSet::new(),
         }
     }
 
@@ -68,21 +70,32 @@ impl Spreadsheet {
 
     pub(crate) fn set(&self, key: String, command: String) -> Result<(), String> {
         info!("In Spreadsheet::set(): setting the value for {key} to {command}");
-        let cell = Cell::new(command, &self)?;
-        self.cells.insert(key.clone(), cell);
-        info!("Successfully inserted the cell to key {}", key);
-        // If this is a new node, add it to the dependency graph
-
         if !self.nodes.contains_key(&key) {
             info!("Inserting node for key {key} to dependency graph");
             let new_node = self.dependency_graph.clone().lock().add_node(key.clone());
             info!("Inserting node index to hash map");
             self.nodes.insert(key.clone(), new_node);
         }
+
+        let cell = match Cell::new(command, &self) {
+            Ok(res) => res,
+            Err(e) => {
+                self.invalid_nodes.insert(key);
+                return Err(e);
+            }
+        };
+        self.cells.insert(key.clone(), cell);
+        info!("Successfully inserted the cell to key {}", key);
+        // If this is a new node, add it to the dependency graph
+
         info!("Updating the dependency graph from key {key}");
         self.update_dependency_graph(key.clone())?;
         info!("Dependency graph updated!");
         self.update_dependents(key)
+    }
+
+    pub(crate) fn is_invalid_node(&self, key: String) -> bool {
+        self.invalid_nodes.contains(&key)
     }
 
     pub(crate) fn get(&self, key: String) -> Option<CellValue> {

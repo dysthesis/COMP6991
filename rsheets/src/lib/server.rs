@@ -60,6 +60,12 @@ where
                             continue;
                         }
                     };
+                    if spreadsheet.is_invalid_node(cell.to_string()) {
+                        let _ = send.write_message(Reply::Error(String::from(format!(
+                            "The value for cell {cell} is invalid"
+                        ))));
+                        continue;
+                    }
                     let val: CellValue = spreadsheet.get(cell.to_string()).unwrap_or_default();
                     info!("Value for cell {} is {:?}", cell, val);
                     send.write_message(Reply::Value(cell.to_string(), val))
@@ -87,14 +93,20 @@ where
                         continue;
                     };
 
-                    if let Err(e) = spreadsheet.set(cell.into(), commands[2..].join(" ")) {
-                        info!("Got error {e} when attempting to set the cell {cell}'s value");
-                        let _ = send.write_message(Reply::Error(e));
-                        continue;
-                    };
+                    thread::scope(|s| {
+                        s.spawn(|| spreadsheet.set(cell.into(), commands[2..].join(" ")));
+                    });
+                    // if let Err(e) = spreadsheet.set(cell.into(), commands[2..].join(" ")) {
+                    //     info!("Got error {e} when attempting to set the cell {cell}'s value");
+                    //     let _ = send.write_message(Reply::Error(e));
+                    //     continue;
+                    // };
 
-                    let value = commands[2..].join(" ");
-                    info!("Successfully set the cell {cell}'s value to {value}");
+                    info!(
+                        "Successfully set the cell {}'s value to {}",
+                        cell,
+                        commands[2..].join(" ")
+                    );
                     Ok(())
                 }
                 _ => {
