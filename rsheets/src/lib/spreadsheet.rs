@@ -18,7 +18,7 @@ pub(crate) struct Cell {
 
 impl Cell {
     pub(crate) fn update(&self, spreadsheet: &Spreadsheet) -> Result<Self, String> {
-        Self::new(self.command.clone().lock().clone(), spreadsheet)
+        Self::new(self.command.lock().clone(), spreadsheet)
     }
     pub(crate) fn new(command: String, spreadsheet: &Spreadsheet) -> Result<Self, String> {
         let runner = CommandRunner::new(command.as_str());
@@ -37,8 +37,8 @@ impl Cell {
 impl Clone for Cell {
     fn clone(&self) -> Self {
         Self {
-            value: Arc::new(Mutex::new(self.value.clone().lock().clone())),
-            command: Arc::new(Mutex::new(self.command.clone().lock().clone())),
+            value: Arc::new(Mutex::new(self.value.lock().clone())),
+            command: Arc::new(Mutex::new(self.command.lock().clone())),
         }
     }
 }
@@ -65,14 +65,14 @@ impl Spreadsheet {
     }
 
     pub(crate) fn is_self_referential(&self) -> bool {
-        is_cyclic_directed(&*self.dependency_graph.clone().lock())
+        is_cyclic_directed(&*self.dependency_graph.lock())
     }
 
     pub(crate) fn set(&self, key: String, command: String) -> Result<(), String> {
         info!("In Spreadsheet::set(): setting the value for {key} to {command}");
         if !self.nodes.contains_key(&key) {
             info!("Inserting node for key {key} to dependency graph");
-            let new_node = self.dependency_graph.clone().lock().add_node(key.clone());
+            let new_node = self.dependency_graph.lock().add_node(key.clone());
             info!("Inserting node index to hash map");
             self.nodes.insert(key.clone(), new_node);
         }
@@ -109,14 +109,14 @@ impl Spreadsheet {
 
     pub(crate) fn get(&self, key: String) -> Option<CellValue> {
         match self.cells.get(&key) {
-            Some(val) => Some(val.value.clone().lock().clone()),
+            Some(val) => Some(val.value.lock().clone()),
             None => None,
         }
     }
 
     pub(crate) fn get_values(&self) -> HashMap<String, CellValue> {
         self.cells.iter().fold(HashMap::new(), |mut acc, x| {
-            acc.insert(x.key().to_string(), x.value().value.clone().lock().clone());
+            acc.insert(x.key().to_string(), x.value().value.lock().clone());
             acc
         })
     }
@@ -130,7 +130,7 @@ impl Spreadsheet {
                 ))
             }
         };
-        let command = CommandRunner::new(&cell.command.clone().lock());
+        let command = CommandRunner::new(&cell.command.lock());
         let dependencies: Vec<String> = command
             .find_variables()
             .par_iter()
@@ -149,7 +149,7 @@ impl Spreadsheet {
         // Mark self as invalid if any of its dependencies is invalid.
         dependencies.iter().for_each(|x| {
             let cell = match self.cells.get(x) {
-                Some(res) => res.clone().value.clone().lock().clone(),
+                Some(res) => res.clone().value.lock().clone(),
                 None => CellValue::None,
             };
             if let CellValue::Error(_) = cell {
@@ -161,24 +161,23 @@ impl Spreadsheet {
         });
 
         // Update the dependency graph
-        let errors: Vec<String> = dependencies.iter().fold(Vec::new(), |mut acc, x| {
+        dependencies.iter().for_each(|x| {
             match self.nodes.get(x) {
                 Some(node) => {
-                    self.dependency_graph.clone().lock().add_edge(node.to_owned(), target.to_owned(), ());
-                },
-                None => {acc.push(format!("the dependency {x} for cell {key} does not have a node in the dependency graph"));}
+                    self.dependency_graph
+                        .lock()
+                        .add_edge(node.to_owned(), target.to_owned(), ());
+                }
+                None => {
+                    let mut graph = self.dependency_graph.lock();
+                    let new_node = graph.add_node(x.clone());
+                    graph.add_edge(new_node, target.to_owned(), ());
+                    self.nodes.insert(x.clone(), new_node);
+                }
             };
-            return acc;
         });
 
-        if !errors.is_empty() {
-            return Err(errors
-                .first()
-                .expect("we checked that `errors` is not empty")
-                .to_string());
-        }
-
-        if is_cyclic_directed(&*self.dependency_graph.clone().lock()) {
+        if is_cyclic_directed(&*self.dependency_graph.lock()) {
             return Err(String::from(format!("Graph is self-referentiial")));
         }
 
@@ -195,7 +194,7 @@ impl Spreadsheet {
         };
         info!("Found node index associated with the cell");
 
-        let dependency_graph = self.dependency_graph.clone().lock().clone();
+        let dependency_graph = self.dependency_graph.lock().clone();
         let dependents: Vec<NodeIndex> = Bfs::new(&dependency_graph, start.to_owned())
             .iter(&dependency_graph)
             .collect();
