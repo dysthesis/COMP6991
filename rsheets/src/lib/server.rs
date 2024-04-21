@@ -12,22 +12,12 @@ where
     M: Manager,
 {
     let spreadsheet = Arc::new(Spreadsheet::new());
-    loop {
-        match manager.accept_new_connection() {
-            Ok((recv, send)) => {
-                let recv: <<M as Manager>::ReaderWriter as ReaderWriter>::Reader = recv;
-                let send: <<M as Manager>::ReaderWriter as ReaderWriter>::Writer = send;
-                let ss: Arc<Spreadsheet> = spreadsheet.clone();
-                thread::spawn(move || -> Result<(), String> {
-                    handle_connection::<M>(recv, send, ss)
-                });
-            }
-            Err(_) => {
-                info!("Failed to accept new connection");
-                break;
-            }
-        }
+    while let Ok((recv, send)) = manager.accept_new_connection() {
+        let ss = spreadsheet.clone();
+        thread::spawn(move || handle_connection::<M>(recv, send, ss));
     }
+
+    // If it got to this point, it probably failed to receive new connection
     Ok(())
 }
 fn handle_connection<M>(
