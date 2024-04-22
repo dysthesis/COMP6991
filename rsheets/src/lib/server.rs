@@ -67,23 +67,23 @@ where
                         }
                     };
                     if spreadsheet.is_self_referential() {
-                        let _ = send.write_message(Reply::Error(String::from(format!(
+                        let _ = send.write_message(Reply::Error(format!(
                             "The value for cell {cell} is invalid"
-                        ))));
+                        )));
 
                         continue;
                     }
                     if spreadsheet.is_invalid_node(cell.to_string()) {
-                        let _ = send.write_message(Reply::Error(String::from(format!(
+                        let _ = send.write_message(Reply::Error(format!(
                             "The value for cell {cell} is invalid"
-                        ))));
+                        )));
                         continue;
                     }
 
                     if spreadsheet.has_invalid_dependencies(&cell.to_string()) {
-                        let _ = send.write_message(Reply::Error(String::from(format!(
+                        let _ = send.write_message(Reply::Error(format!(
                             "The value for cell {cell} is invalid"
-                        ))));
+                        )));
                         continue;
                     }
                     let val: CellValue = spreadsheet.get(cell.to_string()).unwrap_or_default();

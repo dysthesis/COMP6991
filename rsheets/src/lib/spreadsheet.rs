@@ -148,7 +148,7 @@ impl Spreadsheet {
                 if let CellValue::Error(_) = x.value.lock().clone() {
                     acc += 1;
                 }
-                return acc;
+                acc
             });
         error_dependencies != 0i32
     }
@@ -237,7 +237,7 @@ impl Spreadsheet {
                         .edge_endpoints(id)
                         .unwrap();
                     if dependents.contains(&source) && dependents.contains(&target) {
-                        Some(edge.clone())
+                        Some(*edge)
                     } else {
                         None
                     }
@@ -269,9 +269,9 @@ impl Spreadsheet {
                 Some(id) => id,
                 None => {
                     let index = node.index();
-                    acc.push(String::from(format!(
+                    acc.push(format!(
                         "Cannot find the cell ID associated with the node {index}"
-                    )));
+                    ));
                     return acc;
                 }
             };
@@ -280,7 +280,7 @@ impl Spreadsheet {
                 info!("Failed to update value for cell {cell_id}");
                 acc.push(e);
             };
-            return acc;
+            acc
         });
 
         info!("Updated the values for cell dependents, checking for errors...");
@@ -300,9 +300,7 @@ impl Spreadsheet {
         let cell = match self.cells.get(&key) {
             Some(val) => val.clone(),
             None => {
-                return Err(String::from(format!(
-                    "Cannot find cell associated with the key {key}"
-                )));
+                return Err(format!("Cannot find cell associated with the key {key}"));
             }
         };
         info!("Found the relevant cell to update.");

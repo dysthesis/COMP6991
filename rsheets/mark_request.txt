@@ -4,9 +4,13 @@
 
 ## Question 1:
 
+My program just performs a split_whitespace on the incoming message, and matches on the first token to determine whether it's "get" or "set", and performs its logic accordingly. An alternative representation would be to use enums to build an AST, similar to what I did in assignment 1. That approach would allow for more complex command syntax, but is more difficult to maintain. My intuition would also say that parsing the command into an AST before executing would be more resource-intensive than the my current approach, but I'm not exactly sure (is it?), which is why I thought that it wouldn't really have enough benefits within the assignment scope to justify its use.
+
 ## Question 2:
+Although the functions responsible for parsing cells into Value, Vector, or Matrix is quite the spaghetti code, I think I at least did not do too bad in minimising code duplication. parse_cell splits a cell name into the row and column, list_cells_in_range then converts that into a Vec<Vec<String>> of all the cells in range, cells_to_value maps the cell name to its respective value and command_variable_finder combines them to get the proper CellArgument hash map to feed to CommandRunner. I could probably have reduced duplication if CellArgument::Value could take in a 1x1 2D vector, though that'd be inefficient in exchange.
 
 ## Question 3:
+The most noticeable thing for me has so far been copying, especially if I don't intend to operate on the variable, just read it. I've had to clone variables in quite a few places, the one I most remember being the dependency graph on update_dependents to prevent deadlocking. This probably means worse space complexity.
 
 ## Question 4:
 
@@ -18,7 +22,7 @@ Remember: you don't have to fill these out; but if
 you want to get feedback on a particular element of
 your code; you can!
 
-1.
+1. I was trying to keep track of pending jobs on each cell so that 'get' could wait on them to make sure the value's up-to-date (in an attempt to get autotests to behave more deterministically). I couldn't really figure out how, though. I was thinking of something along the lines of a semaphore or condition variable, but semaphores are supposed to keep track of a finite 'buffer' (there's no upper bound to the number of jobs on a cell, not that that's what we want to track anyways), and condition variables would only tell you when a job is done, but not necessarily when all of them are. In the end, the only thing I could think of is a mutex-ed int, but it somehow feels suboptimal (though the only real reason I could think about for that is that it'd cause 'get' to busy-wait and the locking might cause performance hits). Are there any better ways of doing this?
 
 2.
 
