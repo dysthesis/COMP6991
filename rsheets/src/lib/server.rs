@@ -135,7 +135,7 @@ fn spawn_workers(receiver: Receiver<(String, String)>, spreadsheet: Arc<Spreadsh
         let ss = spreadsheet.clone();
         let child = thread::spawn(move || loop {
             let (cell, command) = match thread_receiver.recv() {
-                Ok(res) => dbg!(res),
+                Ok(res) => res,
                 Err(_) => {
                     continue;
                 }
