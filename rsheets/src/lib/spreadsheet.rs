@@ -82,7 +82,7 @@ impl Spreadsheet {
             self.nodes.insert(key.clone(), new_node);
         }
 
-        let cell = Cell::new(command, &self);
+        let cell = Cell::new(command, self);
 
         self.cells.insert(key.clone(), cell);
         info!("Successfully inserted the cell to key {}", key);
@@ -189,7 +189,7 @@ impl Spreadsheet {
         dependencies.iter().for_each(|x| {
             match self.nodes.get(x) {
                 Some(node) => {
-                    if !existing_dependencies.contains(&node.to_owned()) {
+                    if !existing_dependencies.contains(&node) {
                         graph.add_edge(node.to_owned(), target.to_owned(), ());
                     }
                 }
@@ -229,7 +229,7 @@ impl Spreadsheet {
                         None
                     }
                 },
-                |id, edge| {
+                |id, _| {
                     let (source, target) = self
                         .dependency_graph
                         .clone()
@@ -237,7 +237,7 @@ impl Spreadsheet {
                         .edge_endpoints(id)
                         .unwrap();
                     if dependents.contains(&source) && dependents.contains(&target) {
-                        Some(*edge)
+                        Some(())
                     } else {
                         None
                     }

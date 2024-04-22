@@ -49,84 +49,83 @@ where
         let commands: Vec<&str> = msg.split_whitespace().collect::<Vec<&str>>();
 
         let _result = match commands.first() {
-            Some(verb) => match *verb {
-                "get" => {
-                    info!("Attempting to get a cell's value");
-                    let cell: &str = match commands.get(1) {
-                        Some(val) => {
-                            info!("Found cell name: {val}");
-                            *val
-                        }
-                        None => {
-                            info!("No cell name found");
-                            // Try to fix the fact that Box<dyn Error>> isn't Send
+            Some(verb) => {
+                match *verb {
+                    "get" => {
+                        info!("Attempting to get a cell's value");
+                        let cell: &str = match commands.get(1) {
+                            Some(val) => {
+                                info!("Found cell name: {val}");
+                                val
+                            }
+                            None => {
+                                info!("No cell name found");
+                                // Try to fix the fact that Box<dyn Error>> isn't Send
+                                let _ = send.write_message(Reply::Error("Insufficient arguments for 'get' command. Expected a cell number.".to_string()));
+                                continue;
+                            }
+                        };
+                        if spreadsheet.is_self_referential() {
                             let _ = send.write_message(Reply::Error(format!(
-                                "Insufficient arguments for 'get' command. Expected a cell number."
+                                "The value for cell {cell} is invalid"
+                            )));
+
+                            continue;
+                        }
+                        if spreadsheet.is_invalid_node(cell.to_string()) {
+                            let _ = send.write_message(Reply::Error(format!(
+                                "The value for cell {cell} is invalid"
                             )));
                             continue;
                         }
-                    };
-                    if spreadsheet.is_self_referential() {
-                        let _ = send.write_message(Reply::Error(format!(
-                            "The value for cell {cell} is invalid"
-                        )));
 
-                        continue;
-                    }
-                    if spreadsheet.is_invalid_node(cell.to_string()) {
-                        let _ = send.write_message(Reply::Error(format!(
-                            "The value for cell {cell} is invalid"
-                        )));
-                        continue;
-                    }
-
-                    if spreadsheet.has_invalid_dependencies(&cell.to_string()) {
-                        let _ = send.write_message(Reply::Error(format!(
-                            "The value for cell {cell} is invalid"
-                        )));
-                        continue;
-                    }
-                    let val: CellValue = spreadsheet.get(cell.to_string()).unwrap_or_default();
-                    info!("Value for cell {} is {:?}", cell, val);
-                    send.write_message(Reply::Value(cell.to_string(), val))
-                }
-
-                "set" => {
-                    info!("Attempting to set a cell's value");
-                    let cell: &str = match commands.get(1) {
-                        Some(val) => {
-                            info!("Found cell name: {val}");
-                            *val
-                        }
-                        None => {
-                            info!("No cell name found");
+                        if spreadsheet.has_invalid_dependencies(&cell.to_string()) {
                             let _ = send.write_message(Reply::Error(format!(
-                                "Insufficient arguments for 'set' command. Expected a cell number."
+                                "The value for cell {cell} is invalid"
                             )));
                             continue;
                         }
-                    };
-
-                    if commands.len() < 3 {
-                        info!("No value to set the cell {cell}'s value to.");
-                        let _ = send.write_message(Reply::Error(format!("Insufficient command length. Expected an expression to set the value of cell {cell} to.")));
-                        continue;
-                    };
-                    let command = commands[2..].join(" ");
-                    if let Err(e) = spreadsheet.set(cell.into(), command) {
-                        let _ = send.write_message(Reply::Error(e));
+                        let val: CellValue = spreadsheet.get(cell.to_string()).unwrap_or_default();
+                        info!("Value for cell {} is {:?}", cell, val);
+                        send.write_message(Reply::Value(cell.to_string(), val))
                     }
-                    if let Err(e) = sender.send(cell.to_string()) {
-                        info!("Send error occurred: {:?}", e);
-                    };
 
-                    Ok(())
+                    "set" => {
+                        info!("Attempting to set a cell's value");
+                        let cell: &str = match commands.get(1) {
+                            Some(val) => {
+                                info!("Found cell name: {val}");
+                                val
+                            }
+                            None => {
+                                info!("No cell name found");
+                                let _ = send.write_message(Reply::Error("Insufficient arguments for 'set' command. Expected a cell number.".to_string()));
+                                continue;
+                            }
+                        };
+
+                        if commands.len() < 3 {
+                            info!("No value to set the cell {cell}'s value to.");
+                            let _ = send.write_message(Reply::Error(format!("Insufficient command length. Expected an expression to set the value of cell {cell} to.")));
+                            continue;
+                        };
+                        let command = commands[2..].join(" ");
+                        if let Err(e) = spreadsheet.set(cell.into(), command) {
+                            let _ = send.write_message(Reply::Error(e));
+                        }
+                        if let Err(e) = sender.send(cell.to_string()) {
+                            info!("Send error occurred: {:?}", e);
+                        };
+
+                        Ok(())
+                    }
+                    _ => {
+                        let _ =
+                            send.write_message(Reply::Error("Unrecognised command.".to_string()));
+                        continue;
+                    }
                 }
-                _ => {
-                    let _ = send.write_message(Reply::Error(format!("Unrecognised command.")));
-                    continue;
-                }
-            },
+            }
             None => todo!("make this error out"),
         };
     }
@@ -138,15 +137,14 @@ fn spawn_workers(receiver: Receiver<String>, spreadsheet: Arc<Spreadsheet>) {
         info!("Spawning worker thread {i}");
         let thread_receiver = receiver.clone();
         let ss = spreadsheet.clone();
-        let child = thread::spawn(move || loop {
+        let child = thread::spawn(move || {
             while let Ok(cell) = thread_receiver.recv() {
                 info!(
                     "Worker thread {i} received instruction to update dependencies of cell {cell}"
                 );
-                let _ = ss.update_dependencies(&cell);
+                ss.update_dependencies(&cell);
             }
             info!("Worker thread {i} is terminating because the channel has been closed.");
-            return;
         });
         children.push(child);
     }
