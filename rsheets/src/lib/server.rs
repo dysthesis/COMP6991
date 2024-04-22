@@ -1,4 +1,5 @@
 use crate::spreadsheet::Spreadsheet;
+use crossbeam::channel::{unbounded, Receiver, Sender};
 use log::info;
 use rsheet_lib::cell_value::CellValue;
 use rsheet_lib::connect::{Manager, Reader, ReaderWriter, Writer};
@@ -7,16 +8,21 @@ use std::error::Error;
 use std::sync::Arc;
 use std::thread;
 
+static NUM_WORKERS: i32 = 10;
+
 pub fn start_server<M>(mut manager: M) -> Result<(), Box<dyn Error>>
 where
     M: Manager,
 {
     let spreadsheet = Arc::new(Spreadsheet::new());
-
+    let (tx, rx): (Sender<(String, String)>, Receiver<(String, String)>) = unbounded();
     thread::scope(|s| {
+        s.spawn(|| spawn_workers(rx, spreadsheet.clone()));
         while let Ok((recv, send)) = manager.accept_new_connection() {
             let ss = spreadsheet.clone();
-            s.spawn(move || handle_connection::<M>(recv, send, ss));
+            let child_tx = tx.clone();
+            s.spawn(move || handle_connection::<M>(recv, send, ss, child_tx));
+            info!("Spawned new connection thread.");
         }
     });
 
@@ -27,6 +33,7 @@ fn handle_connection<M>(
     mut recv: <<M as Manager>::ReaderWriter as ReaderWriter>::Reader,
     mut send: <<M as Manager>::ReaderWriter as ReaderWriter>::Writer,
     spreadsheet: Arc<Spreadsheet>,
+    sender: Sender<(String, String)>,
 ) -> Result<(), String>
 where
     M: Manager,
@@ -103,21 +110,11 @@ where
                         let _ = send.write_message(Reply::Error(format!("Insufficient command length. Expected an expression to set the value of cell {cell} to.")));
                         continue;
                     };
+                    let command = commands[2..].join(" ");
+                    if let Err(e) = sender.send((cell.to_string(), command)) {
+                        info!("Send error occurred: {:?}", e);
+                    };
 
-                    thread::scope(|s| {
-                        s.spawn(|| spreadsheet.set(cell.into(), commands[2..].join(" ")));
-                    });
-                    // if let Err(e) = spreadsheet.set(cell.into(), commands[2..].join(" ")) {
-                    //     info!("Got error {e} when attempting to set the cell {cell}'s value");
-                    //     let _ = send.write_message(Reply::Error(e));
-                    //     continue;
-                    // };
-
-                    info!(
-                        "Successfully set the cell {}'s value to {}",
-                        cell,
-                        commands[2..].join(" ")
-                    );
                     Ok(())
                 }
                 _ => {
@@ -128,4 +125,27 @@ where
             None => todo!("make this error out"),
         };
     }
+}
+
+fn spawn_workers(receiver: Receiver<(String, String)>, spreadsheet: Arc<Spreadsheet>) {
+    let mut children = Vec::new();
+    for i in 0..NUM_WORKERS {
+        info!("Spawning worker thread {i}");
+        let thread_receiver = receiver.clone();
+        let ss = spreadsheet.clone();
+        let child = thread::spawn(move || loop {
+            let (cell, command) = match thread_receiver.recv() {
+                Ok(res) => dbg!(res),
+                Err(_) => {
+                    continue;
+                }
+            };
+            info!("Worker thread {i} received instruction to set cell {cell} to {command}");
+            let _ = ss.set(cell, command);
+        });
+        children.push(child);
+    }
+    children
+        .into_iter()
+        .for_each(|child| child.join().expect("child thread panicked"));
 }

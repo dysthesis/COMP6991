@@ -13,6 +13,7 @@ path = "src/main.rs"
 
 [dependencies]
 clap = { version = "4.5.2", features = ["derive"] }
+crossbeam = { version = "0.8.4", features = ["crossbeam-channel"] }
 dashmap = "5.5.3"
 env_logger = "0.11.3"
 log = "0.4.21"
