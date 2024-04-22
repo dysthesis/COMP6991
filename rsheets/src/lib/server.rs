@@ -17,13 +17,15 @@ where
     let spreadsheet = Arc::new(Spreadsheet::new());
     let (tx, rx): (Sender<(String, String)>, Receiver<(String, String)>) = unbounded();
     thread::scope(|s| {
-        s.spawn(|| spawn_workers(rx, spreadsheet.clone()));
+        let ss = spreadsheet.clone();
+        s.spawn(move || spawn_workers(rx, ss));
         while let Ok((recv, send)) = manager.accept_new_connection() {
             let ss = spreadsheet.clone();
             let child_tx = tx.clone();
             s.spawn(move || handle_connection::<M>(recv, send, ss, child_tx));
             info!("Spawned new connection thread.");
         }
+        drop(tx);
     });
 
     // If it got to this point, it probably failed to receive new connection
@@ -139,6 +141,7 @@ fn spawn_workers(receiver: Receiver<(String, String)>, spreadsheet: Arc<Spreadsh
                 let _ = ss.set(cell, command);
             }
             info!("Worker thread {i} is terminating because the channel has been closed.");
+            return;
         });
         children.push(child);
     }
