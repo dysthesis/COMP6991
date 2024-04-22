@@ -8,14 +8,14 @@ use std::error::Error;
 use std::sync::Arc;
 use std::thread;
 
-static NUM_WORKERS: i32 = 3;
+static NUM_WORKERS: i32 = 10;
 
 pub fn start_server<M>(mut manager: M) -> Result<(), Box<dyn Error>>
 where
     M: Manager,
 {
     let spreadsheet = Arc::new(Spreadsheet::new());
-    let (tx, rx): (Sender<(String, String)>, Receiver<(String, String)>) = unbounded();
+    let (tx, rx): (Sender<String>, Receiver<String>) = unbounded();
     thread::scope(|s| {
         let ss = spreadsheet.clone();
         s.spawn(move || spawn_workers(rx, ss));
@@ -35,7 +35,7 @@ fn handle_connection<M>(
     mut recv: <<M as Manager>::ReaderWriter as ReaderWriter>::Reader,
     mut send: <<M as Manager>::ReaderWriter as ReaderWriter>::Writer,
     spreadsheet: Arc<Spreadsheet>,
-    sender: Sender<(String, String)>,
+    sender: Sender<String>,
 ) -> Result<(), String>
 where
     M: Manager,
@@ -113,7 +113,10 @@ where
                         continue;
                     };
                     let command = commands[2..].join(" ");
-                    if let Err(e) = sender.send((cell.to_string(), command)) {
+                    if let Err(e) = spreadsheet.set(cell.into(), command) {
+                        let _ = send.write_message(Reply::Error(e));
+                    }
+                    if let Err(e) = sender.send(cell.to_string()) {
                         info!("Send error occurred: {:?}", e);
                     };
 
@@ -129,16 +132,18 @@ where
     }
 }
 
-fn spawn_workers(receiver: Receiver<(String, String)>, spreadsheet: Arc<Spreadsheet>) {
+fn spawn_workers(receiver: Receiver<String>, spreadsheet: Arc<Spreadsheet>) {
     let mut children = Vec::new();
     for i in 0..NUM_WORKERS {
         info!("Spawning worker thread {i}");
         let thread_receiver = receiver.clone();
         let ss = spreadsheet.clone();
         let child = thread::spawn(move || loop {
-            while let Ok((cell, command)) = thread_receiver.recv() {
-                info!("Worker thread {i} received instruction to set cell {cell} to {command}");
-                let _ = ss.set(cell, command);
+            while let Ok(cell) = thread_receiver.recv() {
+                info!(
+                    "Worker thread {i} received instruction to update dependencies of cell {cell}"
+                );
+                let _ = ss.update_dependencies(&cell);
             }
             info!("Worker thread {i} is terminating because the channel has been closed.");
             return;

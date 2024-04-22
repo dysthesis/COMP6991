@@ -86,10 +86,13 @@ impl Spreadsheet {
 
         self.cells.insert(key.clone(), cell);
         info!("Successfully inserted the cell to key {}", key);
-        // If this is a new node, add it to the dependency graph
 
+        Ok(())
+    }
+
+    pub(crate) fn update_dependencies(&self, key: &String) {
         info!("Updating the dependency graph from key {key}");
-        self.update_dependency_graph(key.clone())?;
+        let _ = self.update_dependency_graph(key.clone());
 
         if !self.is_self_referential() {
             info!("We've checked that the graph is not self-referential. Clearing the set of invalid nodes...");
@@ -97,7 +100,7 @@ impl Spreadsheet {
         }
 
         info!("Dependency graph updated!");
-        self.update_dependents(key)
+        let _ = self.update_dependents(key.clone());
     }
 
     pub(crate) fn is_invalid_node(&self, key: String) -> bool {
