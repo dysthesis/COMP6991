@@ -8,7 +8,7 @@ use std::error::Error;
 use std::sync::Arc;
 use std::thread;
 
-static NUM_WORKERS: i32 = 1;
+static NUM_WORKERS: i32 = 3;
 
 pub fn start_server<M>(mut manager: M) -> Result<(), Box<dyn Error>>
 where
@@ -134,14 +134,11 @@ fn spawn_workers(receiver: Receiver<(String, String)>, spreadsheet: Arc<Spreadsh
         let thread_receiver = receiver.clone();
         let ss = spreadsheet.clone();
         let child = thread::spawn(move || loop {
-            let (cell, command) = match thread_receiver.recv() {
-                Ok(res) => res,
-                Err(_) => {
-                    continue;
-                }
-            };
-            info!("Worker thread {i} received instruction to set cell {cell} to {command}");
-            let _ = ss.set(cell, command);
+            while let Ok((cell, command)) = thread_receiver.recv() {
+                info!("Worker thread {i} received instruction to set cell {cell} to {command}");
+                let _ = ss.set(cell, command);
+            }
+            info!("Worker thread {i} is terminating because the channel has been closed.");
         });
         children.push(child);
     }
