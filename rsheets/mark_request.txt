@@ -45,8 +45,6 @@ I didn't really design it with that in mind, so I'm not quite sure, but it seems
 - Channels are in functionally like a queue.
 - Each thread spawned would just loop through the channel and wait for any incoming orders.
 - The current implementation seems suboptimal to me though. There could be multiple update jobs that could have overlapping cells, meaning that they're unnecessarily updated multiple times.
-- I probably could've made it more efficient with a condition variable though, so it wouldn't busy wait while there's no orders.
-- I might do that if there's still time so if it actually has that then I probably just forgot to update this answer.
 
 
 # Questions to the Marker (OPTIONAL)
