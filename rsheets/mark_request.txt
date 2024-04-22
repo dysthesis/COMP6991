@@ -4,17 +4,50 @@
 
 ## Question 1:
 
-My program just performs a split_whitespace on the incoming message, and matches on the first token to determine whether it's "get" or "set", and performs its logic accordingly. An alternative representation would be to use enums to build an AST, similar to what I did in assignment 1. That approach would allow for more complex command syntax, but is more difficult to maintain. My intuition would also say that parsing the command into an AST before executing would be more resource-intensive than the my current approach, but I'm not exactly sure (is it?), which is why I thought that it wouldn't really have enough benefits within the assignment scope to justify its use.
+- My program just uses split_whitespace on msg and determines 'get' or 'set' from the first token
+- An alternative representation would be using an AST with enums
+  - This would be the better choice for more complex syntax, e.g. rslogo
+  - Parsing to an AST is probably more resource-intensive
+  - Code for parsing would probably be more complex and thus less maintainable
+  - RSheet doesn't have complicated enough of a syntax to justify the AST approach, I think
+    - Technically we do have a complicated syntax, it's just that all that's dealt with by CommandRunner for us.
 
 ## Question 2:
-Although the functions responsible for parsing cells into Value, Vector, or Matrix is quite the spaghetti code, I think I at least did not do too bad in minimising code duplication. parse_cell splits a cell name into the row and column, list_cells_in_range then converts that into a Vec<Vec<String>> of all the cells in range, cells_to_value maps the cell name to its respective value and command_variable_finder combines them to get the proper CellArgument hash map to feed to CommandRunner. I could probably have reduced duplication if CellArgument::Value could take in a 1x1 2D vector, though that'd be inefficient in exchange.
+- My command.rs has a few functions to deal with converting cell ranges to a Vec<Vec<String>> of cells
+  - cells_to_value takes in a cell id and returns the CellValue for it.
+  - parse_cell parses the column and row parts of the cell
+  - list_cells_in_range gives you a list of the cells included in a range
+- I don't see many ways of reducing code duplication
+  - Maybe if Values, Vector, and Matrix all shared the same input type for the constructor (e.g. Value could take a 1x1 Vec<Vec<String>>)?
+    - Probably a waste of resources though.
 
 ## Question 3:
-The most noticeable thing for me has so far been copying, especially if I don't intend to operate on the variable, just read it. I've had to clone variables in quite a few places, the one I most remember being the dependency graph on update_dependents to prevent deadlocking. This probably means worse space complexity.
+- The most noticeable thing for me has so far been copying
+  - Especially if I don't intend to operate on the variable, just read it
+  - E.g. copying the dependency graph on update_dependents to prevent deadlocking.
+  - This probably means worse space complexity.
+- DashMap has been very useful at making my code simpler when converting the single-threaded version of my code to multi-threaded.
+- Locking isn't as noticeable
+  - I primarily just try to restrict the scope as much as I can so it doesn't lock too long.
+  - Definitely easier to deal with
+  - I wish my OS assignments were in Rust.
 
 ## Question 4:
+I didn't really design it with that in mind, so I'm not quite sure, but it seems to just work with my code based on a number of testing.
+
+- The channels used to instruct worker threads are queue-based, so that probably contributes to the ordering
+- My guess for is that the acquisition of the mutex forces the correct ordering.
+- I have a script just running the edge case over and over again and it keeps giving the correct answer.
+- Black magic???
 
 ## Question 5:
+- I just used crossbeam's channels to allow for multiple receivers.
+- Channels are in functionally like a queue.
+- Each thread spawned would just loop through the channel and wait for any incoming orders.
+- The current implementation seems suboptimal to me though. There could be multiple update jobs that could have overlapping cells, meaning that they're unnecessarily updated multiple times.
+- I probably could've made it more efficient with a condition variable though, so it wouldn't busy wait while there's no orders.
+- I might do that if there's still time so if it actually has that then I probably just forgot to update this answer.
+
 
 # Questions to the Marker (OPTIONAL)
 
