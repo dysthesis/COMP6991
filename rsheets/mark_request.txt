@@ -57,6 +57,6 @@ your code; you can!
 
 1. I was trying to keep track of pending jobs on each cell so that 'get' could wait on them to make sure the value's up-to-date (in an attempt to get autotests to behave more deterministically). I couldn't really figure out how, though. I was thinking of something along the lines of a semaphore or condition variable, but semaphores are supposed to keep track of a finite 'buffer' (there's no upper bound to the number of jobs on a cell, not that that's what we want to track anyways), and condition variables would only tell you when a job is done, but not necessarily when all of them are. In the end, the only thing I could think of is a mutex-ed int, but it somehow feels suboptimal (though the only real reason I could think about for that is that it'd cause 'get' to busy-wait and the locking might cause performance hits). Are there any better ways of doing this?
 
-2.
+2. I think that my implementation of multiple worker threads is suboptimal because it is possible for a cell to be updated twice by two ongoing jobs in different threads. For example, take A1=A2+A3. If A2 and A3 is 'big' enough, updating A2 and A3 would cause A1 to be updated twice even though you could just do it once. Is there a way to coordinate between worker threads to find such overlapping nodes and decide on the order of updates such that all of its dependecies are already up-to-date? I don't think just shoving cell IDs in a channel would work, simply because the order of update would be suboptimal (the whole point of doing toposort).
 
 3.
