@@ -8,7 +8,7 @@ use std::error::Error;
 use std::sync::Arc;
 use std::thread;
 
-static NUM_WORKERS: i32 = 10;
+static NUM_WORKERS: i32 = 1;
 
 pub fn start_server<M>(mut manager: M) -> Result<(), Box<dyn Error>>
 where
