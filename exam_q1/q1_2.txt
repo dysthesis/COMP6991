@@ -1,5 +1,5 @@
-1.
+1. &str.
 
-2.
+2. Expressions
 
-3.
+3. A set of instructions can be contained in a braces-delimited ('{}') block. That block can return a value, and a variable can be assigned to said return value.
