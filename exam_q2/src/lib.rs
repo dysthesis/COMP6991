@@ -14,22 +14,22 @@ pub fn print<'a>(a: &'a i32) {
 /// You will need to annotate its lifetimes.
 /// (3 marks)
 #[require_lifetimes]
-pub fn first<'a>(a: &'a i32, b: &'a i32) -> &'a i32 {
+pub fn first<'a, 'b>(a: &'a i32, b: &'b i32) -> &'a i32 {
     a
 }
 
 /// A struct to hold the data of a string being split.
 /// You will need to annotate its lifetimes.
 /// (2 marks)
-pub struct StringSplitter<'a> {
+pub struct StringSplitter<'a, 'b> {
     pub text: &'a str,
-    pub pattern: &'a str,
+    pub pattern: &'b str,
 }
 
 /// This function creates a string splitter with given data.
 /// You will need to annotate its lifetimes.
 /// (3 marks)
 #[require_lifetimes]
-pub fn split<'a>(text: &'a str, pattern: &'a str) -> StringSplitter<'a> {
+pub fn split<'a, 'b>(text: &'a str, pattern: &'b str) -> StringSplitter<'a, 'b> {
     StringSplitter { text, pattern }
 }
