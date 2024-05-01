@@ -1,3 +1,4 @@
-1.
+1. `Rc<T>` does reference counting by manipulating the raw pointer to the count. This means multiple threads could manipulate the reference count without any form of synchronisation, causing a race condition.
 
-2.
+2. - Arc doesn't inherently make the data thread-safe, it just makes it thread-safe to have multiple ownership of the data.
+   - IF Arc<T> implemented Send unconditionally regardless of T, non-thread-safe data could be accessed concurrently, enabling data races.
