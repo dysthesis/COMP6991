@@ -1,3 +1,4 @@
-1.
+1. Yes, because unsafe lets you know exactly where any possible unsoundness could originate from. This makes it easier to build safe abstractions over unsafe code, and also makes it easier to audit unsafe code.
 
-2.
+2. - unsafe voids Rust's safety guarantees, leaving it to the human to verify it.
+   - unsafe is infectious, meaning that the safety of an unsafe block can rely on other sections of code, even safe ones. For this reason, it is often advised that unsafe code be isolated in its own module.
