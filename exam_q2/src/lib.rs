@@ -6,7 +6,7 @@ use require_lifetimes::require_lifetimes;
 /// You will need to annotate its lifetimes.
 /// (2 marks)
 #[require_lifetimes]
-pub fn print(a: &i32) {
+pub fn print<'a>(a: &'a i32) {
     println!("{a}");
 }
 
@@ -14,25 +14,22 @@ pub fn print(a: &i32) {
 /// You will need to annotate its lifetimes.
 /// (3 marks)
 #[require_lifetimes]
-pub fn first(a: &i32, b: &i32) -> &i32 {
+pub fn first<'a>(a: &'a i32, b: &'a i32) -> &'a i32 {
     a
 }
 
 /// A struct to hold the data of a string being split.
 /// You will need to annotate its lifetimes.
 /// (2 marks)
-pub struct StringSplitter {
-    pub text: &str,
-    pub pattern: &str,
+pub struct StringSplitter<'a> {
+    pub text: &'a str,
+    pub pattern: &'a str,
 }
 
 /// This function creates a string splitter with given data.
 /// You will need to annotate its lifetimes.
 /// (3 marks)
 #[require_lifetimes]
-pub fn split(text: &str, pattern: &str) -> StringSplitter {
-    StringSplitter {
-        text,
-        pattern,
-    }
+pub fn split<'a>(text: &'a str, pattern: &'a str) -> StringSplitter<'a> {
+    StringSplitter { text, pattern }
 }
