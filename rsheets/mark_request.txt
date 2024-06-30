@@ -4,13 +4,48 @@
 
 ## Question 1:
 
+- My program just uses split_whitespace on msg and determines 'get' or 'set' from the first token
+- An alternative representation would be using an AST with enums
+  - This would be the better choice for more complex syntax, e.g. rslogo
+  - Parsing to an AST is probably more resource-intensive
+  - Code for parsing would probably be more complex and thus less maintainable
+  - RSheet doesn't have complicated enough of a syntax to justify the AST approach, I think
+    - Technically we do have a complicated syntax, it's just that all that's dealt with by CommandRunner for us.
+
 ## Question 2:
+- My command.rs has a few functions to deal with converting cell ranges to a Vec<Vec<String>> of cells
+  - cells_to_value takes in a cell id and returns the CellValue for it.
+  - parse_cell parses the column and row parts of the cell
+  - list_cells_in_range gives you a list of the cells included in a range
+- I don't see many ways of reducing code duplication
+  - Maybe if Values, Vector, and Matrix all shared the same input type for the constructor (e.g. Value could take a 1x1 Vec<Vec<String>>)?
+    - Probably a waste of resources though.
 
 ## Question 3:
+- The most noticeable thing for me has so far been copying
+  - Especially if I don't intend to operate on the variable, just read it
+  - E.g. copying the dependency graph on update_dependents to prevent deadlocking.
+  - This probably means worse space complexity.
+- DashMap has been very useful at making my code simpler when converting the single-threaded version of my code to multi-threaded.
+- Locking isn't as noticeable
+  - I primarily just try to restrict the scope as much as I can so it doesn't lock too long.
+  - Definitely easier to deal with
+  - I wish my OS assignments were in Rust.
 
 ## Question 4:
+I didn't really design it with that in mind, so I'm not quite sure, but it seems to just work with my code based on a number of testing.
+
+- The channels used to instruct worker threads are queue-based, so that probably contributes to the ordering
+- My guess for is that the acquisition of the mutex forces the correct ordering.
+- I have a script just running the edge case over and over again and it keeps giving the correct answer.
+- Black magic???
 
 ## Question 5:
+- I just used crossbeam's channels to allow for multiple receivers.
+- Channels are in functionally like a queue.
+- Each thread spawned would just loop through the channel and wait for any incoming orders.
+- The current implementation seems suboptimal to me though. There could be multiple update jobs that could have overlapping cells, meaning that they're unnecessarily updated multiple times.
+
 
 # Questions to the Marker (OPTIONAL)
 
@@ -18,8 +53,8 @@ Remember: you don't have to fill these out; but if
 you want to get feedback on a particular element of
 your code; you can!
 
-1.
+1. I was trying to keep track of pending jobs on each cell so that 'get' could wait on them to make sure the value's up-to-date (in an attempt to get autotests to behave more deterministically). I couldn't really figure out how, though. I was thinking of something along the lines of a semaphore or condition variable, but semaphores are supposed to keep track of a finite 'buffer' (there's no upper bound to the number of jobs on a cell, not that that's what we want to track anyways), and condition variables would only tell you when a job is done, but not necessarily when all of them are. In the end, the only thing I could think of is a mutex-ed int, but it somehow feels suboptimal (though the only real reason I could think about for that is that it'd cause 'get' to busy-wait and the locking might cause performance hits). Are there any better ways of doing this?
 
-2.
+2. I think that my implementation of multiple worker threads is suboptimal because it is possible for a cell to be updated twice by two ongoing jobs in different threads. For example, take A1=A2+A3. If A2 and A3 is 'big' enough, updating A2 and A3 would cause A1 to be updated twice even though you could just do it once. Is there a way to coordinate between worker threads to find such overlapping nodes and decide on the order of updates such that all of its dependecies are already up-to-date? I don't think just shoving cell IDs in a channel would work, simply because the order of update would be suboptimal (the whole point of doing toposort).
 
 3.

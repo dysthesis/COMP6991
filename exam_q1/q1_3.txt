@@ -1,0 +1,6 @@
+1. - This is a dangling reference
+   - x is a borrow of y, but y only lives inside the block
+   - When println is called on x, the value it refers to no longer exists.
+
+2. - No, this would cause a use-after-free bug in C.
+   - Rust's strictness means less flexibility, but in this case, it's safe to say that we don't need the aformentioned flexibility for any genuine use case.

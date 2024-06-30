@@ -1,0 +1,4 @@
+1. The Result enum would be more suitable here.
+
+2. - It makes it clearer that the function can succeed (Ok) or fail (Err)
+   - It lets you pattern match.

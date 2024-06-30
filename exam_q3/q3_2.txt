@@ -1,0 +1,10 @@
+1 .
+
+1. - The first approach would only let one add the two points using the `add` method.
+   - The second approach lets you use the `+` operator, which some may find more intuitive
+   - The second appraoch benefits from parametric polymorphism
+     - The second `Point` struct can be used on generic functions that accepts inputs that implement the `Add` trait.
+     - The first approach can only be used on functions specifically specifying the `Point` struct as input type.
+   - In general, the second approach would be the better approach as it affords more flexibility
+
+2. The first approach would not work if you have a iterator of Points and wish to use `sum()` on it, while the second approach would.

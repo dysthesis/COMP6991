@@ -1,0 +1,22 @@
+1. - The reference counter can overflow (when there's usize::MAX references), the given code does not handle such cases.
+   - There are no safety comments for any of the unsafe blocks.
+   - The unsafe block on drop can be tightened like so:
+
+```rs
+impl<T> Drop for Rc<T> {
+    fn drop(&mut self) {
+        let count_addr = unsafe { addr_of_mut!((*self.ptr).count) };
+        let count = unsafe { *count_addr };
+        let new_count = count - 1;
+        if new_count > 0 {
+            unsafe { ptr::write(count_addr, new_count) };
+        } else {
+            drop(unsafe { Box::from_raw(self.ptr) })
+        }
+    }
+}
+```
+
+2. The implementation of Rc isn't thread safe. Multiple threads could cause a race condition when attempting to drop the value.
+
+3.

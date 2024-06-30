@@ -1,0 +1,13 @@
+macro_rules! cvar {
+    () => {};
+
+    ( ($type:ty) mut $name:ident = $value:expr; $($rest:tt)*) => {
+        let mut $name: $type = $value;
+        cvar! { $($rest)* }
+    };
+
+    ( ($type:ty) $name:ident = $value:expr; $($rest:tt)*) => {
+        let $name: $type = $value;
+        cvar! { $($rest)* }
+    };
+}

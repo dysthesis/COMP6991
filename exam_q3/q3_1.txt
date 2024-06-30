@@ -1,0 +1,6 @@
+1. - Result
+   - Option
+
+2. On a successful enum variant, i.e. Ok(T) or Some(T), it returns what's inside the enum (which is T)
+
+3. On an erroneous enum variant, i.e. Err(E) or None, it will pass along `Err(E)` or `None` (in other words, propagate it upwards).

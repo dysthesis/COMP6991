@@ -1,0 +1,36 @@
+1. At any given point in time, there can exists either many immutable borrows or a single mutable borrow, and never both. This prevents data races that could happen when either multiple threads write to a value concurrently, or a value is read by one thread at the same time it is written by another thread.
+
+2. The use of `unsafe` still allows for data races, as the unsafe keywords provides an 'escape hatch' from Rust's borrow checker. Take for example the following code:
+
+```rust
+use std::thread;
+
+static mut GLOBAL: i32 = 0;
+
+fn main() {
+    let t1 = thread::spawn(|| {
+        unsafe {
+            for _ in 0..1000 {
+                GLOBAL += 1;
+            }
+        }
+    });
+
+    let t2 = thread::spawn(|| {
+        unsafe {
+            for _ in 0..1000 {
+                GLOBAL += 1;
+            }
+        }
+    });
+
+    t1.join().unwrap();
+    t2.join().unwrap();
+
+    unsafe {
+        println!("Global: {}", GLOBAL);
+    }
+}
+```
+
+Note that the above example technically works under Rust's standard compiler optimisation (-O3), as the compiler employs loop unrolling here, converting each for loop into a single `GLOBAL += 1000`.

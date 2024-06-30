@@ -32,6 +32,24 @@
           inherit system;
           overlays = [
             inputs.rust-overlay.overlays.default
+
+            (final: prev: {
+              rustToolchains = {
+                stable = pkgs.rust-bin.stable.latest.default.override {
+                  extensions = [
+                    "rust-src"
+                    "rust-analyzer"
+                    "llvm-tools"
+                  ];
+                };
+                nightly = pkgs.rust-bin.nightly.latest.default.override {
+                  extensions = [
+                    "rust-src"
+                    "miri"
+                  ];
+                };
+              };
+            })
           ];
         };
 
@@ -55,7 +73,7 @@
           '';
 
           nativeBuildInputs = with pkgs; [
-            just
+            rustToolchains.stable
             cargo
             rustc
             bacon
@@ -69,6 +87,15 @@
           env = {
             RUST_BACKTRACE = "full";
           };
+        };
+
+        # Nightly compilator to run miri tests
+        devShells.nightly = pkgs.mkShell {
+          nativeBuildInputs = with pkgs; [
+            rustToolchains.nightly
+            bacon
+            rust-analyzer
+          ];
         };
 
         # Auto-format your entire project tree
